@@ -1,29 +1,41 @@
 import pandas as pd
-from pybaseball import statcast
+
+RUTA = "/mnt/c/Users/matia/OneDrive/Desktop/DIABLOS/stuff_model_df.parquet"
 
 def cargar_datos():
-    df = statcast(start_dt="2025-07-01", end_dt="2025-07-07")
+    df = pd.read_parquet(RUTA)
+    
+    #tipos de tiro reconocidos y pitch calls
+    df = df[~df["PitchCall"].isin(["BallIntentional", "AutomaticBall","AutomaticStrike", "Undefined"])]
+    tipos_validos = ["Four-Seam", "Slider", "Sinker", "Changeup","Curveball", "Cutter", "Splitter", "Sweeper"]
+    df = df[df["AutoPitchType"].isin(tipos_validos)]
 
-    #print("Before:", len(df))
-    #Creates mask to identify all non comp pitches and no pitch throwns and removes them 
-    non_comp = ["Eephus", "Pitch Out", "Other"]
-    df = df[~df["pitch_name"].isin(non_comp)]
+    #pitchers con mano reconocida
+    df = df[df["PitcherThrows"].isin(["Right", "Left"])]
 
-    no_pitch_thrown = ["automatic_ball", "automatic_strike", "pitchout"]
-    df = df[~df["description"].isin(no_pitch_thrown)]
-
-    #Quita datos vacios de las columnas mas importantes 
-    cols_importantes = ["pitch_name", "release_speed", "release_spin_rate", "pfx_x", "pfx_z"]
-    #borra pitches con celdas importantes vacias
+    #eliminar datos con columnas importantes vacias
+    #tenemos que agregar categorias aca cuando implementemos cualquier dato nuevo
+    cols_importantes = ["RelSpeed", "SpinRate", "InducedVertBreak",
+                        "HorzBreak", "Extension", "RelHeight", "RelSide", "pitcher_anon_id"]
     df = df.dropna(subset=cols_importantes)
 
-    #print("After:", len(df))
+    #quita valores imposibles de a pelota
+    df = df[df["RelSpeed"].between(60, 105)]
+    df = df[df["Extension"].between(3, 8)]
+    df = df[df["InducedVertBreak"].abs() <= 30]
+    df = df[df["HorzBreak"].abs() <= 30]
 
-    #Conversion de pies a pulgadas de datos de posicion
-    df["pfx_x"] = df["pfx_x"] * 12
-    df["pfx_z"] = df["pfx_z"] * 12
+    #voltear para zurdos 
+    zurdo = df["PitcherThrows"] == "Left"
+    df.loc[zurdo, "HorzBreak"] *= -1
+    df.loc[zurdo, "RelSide"] *= -1
 
-    #flip sides for x coord
-    df.loc[df["p_throws"] == "L", "pfx_x"] *= -1
-    
     return df
+
+#Release speed - Que tan rapido suelta la pelota
+#Spinning rate de pelota - Que tan rapido rota la pelota
+#InducedVertBreak - Movimiento vertical debido al giro
+#HorzBreak - Movimiento Horizontal 
+#Extension - Que tan adelante de la "base" se suelta la pelota
+#RelHeight - Altura de release
+#RelSide - Posicion de la mano al soltar la pelota en relacion al centro de la "base"
