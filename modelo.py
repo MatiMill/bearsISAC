@@ -42,10 +42,7 @@ print("Log loss baseline:", log_loss(y_test, [y_train.mean()] * len(y_test)))
 #Stuff+ metric creation
 test = df.iloc[test_idx].copy()
 test["p_whiff"] = p_test
+#z-scores
 test["stuff_plus"] = 100 + 10 * (test["p_whiff"] - test["p_whiff"].mean()) / test["p_whiff"].std()
 
-print(test.groupby("AutoPitchType")["stuff_plus"].mean().round(1).sort_values(ascending=False))
 
-#best pitchers prediction
-por_pitcher = test.groupby("pitcher_anon_id").filter(lambda g: len(g) >= 100)
-print(por_pitcher.groupby("pitcher_anon_id")["stuff_plus"].mean().round(1).sort_values(ascending=False).head(10))
