@@ -1,6 +1,7 @@
 import pandas as pd
+from pathlib import Path
 
-RUTA = "/mnt/c/Users/matia/OneDrive/Desktop/DIABLOS/stuff_model_df.parquet"
+RUTA = Path(__file__).resolve().parent.parent/ "stuff_model_df.parquet"
 
 def cargar_datos():
     df = pd.read_parquet(RUTA)
