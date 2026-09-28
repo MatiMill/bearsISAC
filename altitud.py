@@ -58,16 +58,16 @@ ALTITUDES = {
 
 
 def densidad_esperada(h):
-    """Densidad relativa al nivel del mar a altitud h (atmósfera estándar, misma temperatura)."""
+    #Regresion lineal de una sobre otra 
     return (1 - 2.25577e-5 * h) ** 5.25588
 
 
 def altitud_desde_densidad(d):
-    """Inversa de densidad_esperada."""
+    #Inversa de regresion lineal
     return (1 - d ** (1 / 5.25588)) / 2.25577e-5
 
 
-# ---------- PASO 1: densidad medida por estadio ----------
+#Densidad media por estadio
 juegos = pd.read_parquet(RUTA.parent / "estadios.parquet").dropna(subset=["estadio"])
 estadios = juegos.groupby("estadio").agg(
     juegos=("year", "size"),
@@ -76,7 +76,7 @@ estadios = juegos.groupby("estadio").agg(
     harp_helu=("harp_helu", "any"),
 )
 
-# ---------- PASO 2: emparejar con altitudes reales ----------
+#Matching de ranking a los estadios reales
 filas = []
 for categoria, alturas in ALTITUDES.items():
     grupo = estadios[estadios["altitud"] == categoria].sort_values("medida")
@@ -93,12 +93,12 @@ for categoria, alturas in ALTITUDES.items():
 tabla = pd.DataFrame(filas).set_index("estadio")
 tabla["esperada"] = densidad_esperada(tabla["altitud_real"])
 
-# ---------- PASO 3: ajustar la recta ----------
+#Ajuste de recta
 a, b = np.polyfit(tabla["esperada"], tabla["medida"], 1)
 prediccion = a * tabla["esperada"] + b
 r2 = 1 - ((tabla["medida"] - prediccion) ** 2).sum() / ((tabla["medida"] - tabla["medida"].mean()) ** 2).sum()
 
-# ---------- PASO 4: altitud estimada de cada estadio ----------
+#Estimar cada altura por estadio
 tabla["altitud_estimada"] = altitud_desde_densidad((tabla["medida"] - b) / a).round(-1)
 tabla["error_m"] = tabla["altitud_estimada"] - tabla["altitud_real"]
 

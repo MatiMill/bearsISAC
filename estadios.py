@@ -42,7 +42,7 @@ def mas_comun(s):
     return s.value_counts().index[0] if s.notna().any() else None
 
 
-# ---------- PASO 1: reconstruir los equipos de cada temporada ----------
+#Reconstruir equipos de cada temporada 
 def equipos_de_temporada(d, year):
     # Tabla pitcher x mitad de juego: 1 si el pitcher lanzó en esa mitad
     tabla = pd.crosstab(d["pitcher_anon_id"], d["mitad"]).clip(upper=1)
@@ -65,13 +65,13 @@ for year, d in df.groupby("year"):
 df["equipo"] = [equipo_de.get((y, p)) for y, p in zip(df["year"], df["pitcher_anon_id"])]
 
 
-# ---------- PASO 2: equipo local de cada juego ----------
+#Determinar equipo local de cada juego
 juegos = df.groupby("game_anon_id").agg(year=("year", "first"),altitud=("altitude_category", mas_comun))
 arriba = df[df["Top/Bottom"] == "Top"]   # en la parte alta lanza el local
 juegos["local"] = arriba.groupby("game_anon_id")["equipo"].agg(mas_comun)
 
 
-# ---------- PASO 3: densidad del aire de cada juego ----------
+#Densidad del aire en cada juego
 rectas = df[df["AutoPitchType"] == "Four-Seam"].dropna(subset=["vx0", "vy0", "vz0", "ay0"])
 k = rectas["ay0"] / (rectas["vx0"]**2 + rectas["vy0"]**2 + rectas["vz0"]**2)
 k_juego = k.groupby(rectas["game_anon_id"]).agg(["median", "size"])
@@ -82,8 +82,8 @@ referencia = juegos.loc[juegos["altitud"] == "No Altitude", "k"].median()
 juegos["densidad_juego"] = juegos["k"] / referencia
 
 
-# ---------- PASO 4: unir temporadas -> estadio ----------
-# Cada equipo se empareja con el equipo de 2025 con el que comparte más pitchers
+#Matching de temporadas a estadios
+# Cada equipo se empareja con el equipo de 2025 con el que comparte más pitchers, ya que 2025 era el set mas completo
 plantel = df.dropna(subset=["equipo"]).groupby("equipo")["pitcher_anon_id"].apply(set)
 base = plantel[plantel.index.str.startswith(f"{TEMPORADA_BASE}_")]
 
@@ -97,7 +97,7 @@ for year in sorted(df["year"].unique()):
 juegos["estadio"] = juegos["local"].map(estadio_de)
 
 
-# ---------- PASO 5: tabla de estadios ----------
+#Generar tabla de estadios 
 carreras = df.groupby(["game_anon_id", "Top/Bottom"])["RunsScored"].sum().unstack()
 juegos["gana_local"] = carreras["Bottom"] > carreras["Top"]
 
@@ -110,21 +110,16 @@ pct = juegos.pivot_table(index="estadio", columns="year", values="gana_local", a
 tabla = tabla.join(pct.add_prefix("pct_local_")).sort_values("densidad")
 
 
-# ---------- PASO 6: identificar el Harp Helú ----------
-# Los estadios de altitud extrema tienen casi la misma densidad (la diferencia
-# está dentro del ruido), así que la física sola no distingue el Harp Helú.
-# Desempate: el equipo local con mejor récord (supuesto: los Diablos fueron el
-# equipo dominante en 2024-2025). VERIFICAR con la tabla pública de la LMB.
+#Identificar estadio Harp Helu, usando las estadisticas de temporadas pasadas, encontrando el equipo mas dominante de la liga y matching la altura con Diablos Rojos
 candidatos = tabla[(tabla["altitud"] == "Extreme Altitude") & (tabla["juegos"] >= MIN_JUEGOS_ESTADIO)]
 HARP_HELU = candidatos.filter(like="pct_local").mean(axis=1).idxmax()
-# Seguridad: un juego del Harp Helú también debe estar marcado como altitud extrema
 juegos["harp_helu"] = (juegos["estadio"] == HARP_HELU) & (juegos["altitud"] == "Extreme Altitude")
 
 print(tabla.round(3).to_string())
 print(f"\nHarp Helú = {HARP_HELU} ({juegos['harp_helu'].sum()} juegos)")
 
 
-# ---------- PASO 7: guardar ----------
+#Salida
 salida = juegos[["year", "estadio", "altitud", "densidad_juego", "harp_helu"]].reset_index()
 salida.to_parquet(RUTA.parent / "estadios.parquet")
 print("Guardado en", RUTA.parent / "estadios.parquet")
