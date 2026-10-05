@@ -79,5 +79,4 @@ Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimo
 - Nunca hacer push directo a `main`: usar un pull request.
 - Hacer `git pull` antes de empezar a trabajar.
 - Nunca subir archivos de datos (`.parquet`, `.csv`).
-
-#Matias - Falta que agregue mi ultimo commit al readme sobre como calculo ubicacion
+  
