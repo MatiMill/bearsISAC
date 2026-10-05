@@ -101,11 +101,24 @@ Proporción de cada clase:
 - Arsenal (por pitcher × temporada): recta primaria = tipo más usado entre Four-Seam/Sinker/Cutter; `velo_diff_vs_fb`, `ivb_diff_vs_fb`, `hb_diff_vs_fb`, `release_diff_vs_fb`, `pitch_usage_pct`.
 - `AutoPitchType` no es feature del modelo físico (el modelo ve formas, no etiquetas); sí se usa para arsenal y agregación.
 
-### Paso 4 · Separar datos
+### Paso 4 · Separar datos (`particion.py`, Ricardo — escrito)
 
 - Última temporada = **test sellado**: no se toca hasta la validación final.
 - Todo lo demás (hiperparámetros, early stopping, selección de features) se decide con las temporadas anteriores usando GroupKFold por pitcher.
 - Motivo: si se eligen hiperparámetros con los mismos datos que se reportan, el resultado sale inflado.
+- `separar_test(df) -> (entrenamiento, test)`: test = `df[year == year.max()]`, entrenamiento = el resto. Genérica (cualquier `df` con columna `year`); el Paso 6 la importa con `from particion import separar_test`.
+
+#### Resultados verificados (corrida del 2026-10-05, datos limpios, 627,733 lanzamientos)
+
+Test sellado = temporada **2026** (la última; parcial, por eso no es un tercio exacto).
+
+| Parte | Lanzamientos | % | Pitchers distintos |
+|---|---|---|---|
+| entrenamiento (2024+2025) | 496,625 | 79.1 % | 829 |
+| test (2026) | 131,108 | 20.9 % | 549 |
+
+- **Pitchers del test:** 301 (54.8 %) también aparecen en entrenamiento; 248 (45.2 %) son **nuevos** (solo en test).
+- Consecuencia: la validación final (Paso 9) mezcla dos efectos a la vez —temporada nueva y pitchers nuevos—. Para un *season holdout* puro conviene reportar métricas separando los 301 pitchers vistos de los 248 nuevos.
 
 ### Paso 5 · Valores de carrera (Ivana)
 
@@ -187,8 +200,8 @@ Optimización de `min_child_samples` (y demás hiperparámetros):
 
 ## 6. Estado (2026-09-28)
 
-- **Hecho:** `limpieza.py` v0, `modelo.py` (P(whiff | swing), referencia), README, `explorar_columnas.py`, `objetivo.py`, `modelo_multiclase.py` v0 (sin conteo aún).
-- **Pendiente inmediato:** inventario del parquet (Matías); pregunta a ISAC sobre altitud/estadios/clima; correr `objetivo.py` y `modelo_multiclase.py` con datos reales; agregar `Balls`/`Strikes`; completar limpieza (bunts, SpinAxis, ángulos); separar test sellado.
+- **Hecho:** `limpieza.py` v0, `modelo.py` (P(whiff | swing), referencia), README, `explorar_columnas.py`, `objetivo.py`, `modelo_multiclase.py` v0 (sin conteo aún), `particion.py` (test sellado = 2026).
+- **Pendiente inmediato:** inventario del parquet (Matías); pregunta a ISAC sobre altitud/estadios/clima; correr `modelo_multiclase.py` con datos reales; agregar `Balls`/`Strikes`; completar limpieza (bunts, SpinAxis, ángulos).
 
 ## 7. Bitácora de cambios
 
@@ -198,3 +211,4 @@ Optimización de `min_child_samples` (y demás hiperparámetros):
 - **2026-09-28:** método de RV_k sin depender del orden de los lanzamientos (RE por outs con suma de `RunsScored` en `Outs` ≥ o); usar datos sin limpiar para valores de carrera.
 - **2026-10-05:** Matías reconstruye estadios y densidad por juego → altitud continua y Harp Helú identificable.
 - **2026-10-05:** `objetivo.py` corrido con datos reales (627,733 lanzamientos). Verificado: proporciones de las 5 clases (ball 37.8 %, called_strike 15.4 %, whiff 11.3 %, foul 17.2 %, in_play 18.3 %); `whiff` coincide 100 % con `is_whiff`; `is_swing` difiere en 1,119 filas (0.18 %), todas pitches tomados (BallCalled 457, StrikeCalled 390, HitByPitch 227, BallinDirt 45) que el ISAC marca como swing — se conservan porque el target se arma desde `PitchCall`.
+- **2026-10-05:** `particion.py` escrito y corrido (Paso 4). Test sellado = temporada 2026: entrenamiento 496,625 lanzamientos / 829 pitchers (2024+2025), test 131,108 / 549 pitchers. De los pitchers del test, 301 (54.8 %) se vieron en entrenamiento y 248 (45.2 %) son nuevos.
