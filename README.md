@@ -1,3 +1,5 @@
+# bearsISAC
+
 Hackathon ISAC 2026 · Diablos Rojos · ITAM
 
 Modelo **Stuff+**: califica la calidad de cada pitch a partir de sus propiedades físicas
@@ -16,12 +18,21 @@ DIABLOS/
 ├── stuff_plus_data_dictionary.csv    ← diccionario de columnas
 ├── estadios.parquet                  ← lo genera estadios.py
 ├── altitudes.parquet                 ← lo genera altitud.py
+├── salidas/                          ← lo genera modelo_multiclase.py
+│   ├── predicciones_oof.parquet
+│   └── validacion_multiclase.csv
+├── modelos/                          ← lo genera modelo_multiclase.py
+│   └── modelo_resultado.txt
 └── bearsISAC/                        ← este repo
     ├── limpieza.py
+    ├── objetivo.py
     ├── modelo.py
+    ├── modelo_multiclase.py
     ├── estadios.py
     ├── altitud.py
-    └── dictionary.txt
+    ├── dictionary.txt
+    └── docs/
+        └── decisions.md
 ```
 
 Los scripts guardan sus resultados en `DIABLOS/`, fuera del repo, porque también son datos del ISAC.
@@ -42,7 +53,9 @@ source ~/venvs/bears/bin/activate
 ## Uso
 Desde la carpeta del repo, con el entorno activado:
 ```bash
-python modelo.py      # modelo Stuff+
+python objetivo.py            # revisa el target de 5 resultados contra los datos
+python modelo_multiclase.py   # modelo principal: probabilidad de cada resultado
+python modelo.py              # modelo de referencia: P(whiff | swing)
 
 python estadios.py    # 1) estadio y densidad del aire de cada juego
 python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
@@ -52,11 +65,26 @@ python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
 | Archivo | Qué hace |
 |---|---|
 | `limpieza.py` | Carga los datos y los limpia: quita pitches no competitivos, bunts, filas vacías y valores imposibles; voltea el movimiento horizontal, `RelSide` y `SpinAxis` de los zurdos. |
-| `modelo.py` | Entrena un modelo LightGBM que predice la probabilidad de swing fallado (`is_whiff`), lo evalúa con pitchers que no vio en el entrenamiento y calcula el Stuff+. |
+| `objetivo.py` | Define el target: traduce `PitchCall` a 5 resultados (`ball`, `called_strike`, `whiff`, `foul`, `in_play`). Al correrlo, revisa las proporciones y que coincida con `is_whiff` e `is_swing` del ISAC. |
+| `modelo_multiclase.py` | Modelo principal. LightGBM multiclase que predice la probabilidad de cada uno de los 5 resultados usando solo la física del pitch. Validación cruzada de 5 partes por pitcher, comparación contra un baseline y revisión de calibración. Guarda las predicciones fuera de muestra en `../salidas/` y el modelo final en `../modelos/`. |
+| `modelo.py` | Modelo de referencia (el primero que hicimos): predice la probabilidad de swing fallado (`is_whiff`) y calcula un Stuff+ simple. |
 | `estadios.py` | Reconstruye en qué estadio se jugó cada juego (los datos no lo dicen), mide la densidad del aire con el frenado de las rectas e identifica los juegos en el Harp Helú. Genera `estadios.parquet`. |
 | `altitud.py` | Calibra la densidad medida con las altitudes reales de los 20 estadios de la LMB y estima la altitud de cada uno. Genera `altitudes.parquet`. |
 | `dictionary.txt` | Definiciones de las columnas que usamos. |
-| `prueba_baseball.py` | Práctica con datos públicos de MLB (pybaseball). |
+| `docs/decisions.md` | **Fuente de verdad del proyecto:** roles, arquitectura (Stuff+, Location+, Pitching+), el pipeline paso a paso y la bitácora de decisiones. Si una decisión cambia, se cambia ahí con fecha y motivo. |
+
+## Modelo de resultados (5 clases)
+Cada lanzamiento termina en uno de 5 resultados, definidos en `objetivo.py` a partir de `PitchCall`:
+
+| Clase | Significado | % de los datos |
+|---|---|---|
+| `ball` (0) | sin swing, bola (incluye pelotazo) | 37.8 % |
+| `called_strike` (1) | sin swing, strike | 15.4 % |
+| `whiff` (2) | swing y falló | 11.3 % |
+| `foul` (3) | swing y foul | 17.2 % |
+| `in_play` (4) | swing y bola en juego | 18.3 % |
+
+`modelo_multiclase.py` predice las 5 probabilidades de cada lanzamiento (suman 1). Más adelante se combinan con el valor en carreras de cada resultado para obtener el xRV y, de ahí, el Stuff+ (ver `docs/decisions.md`, pasos 5–8).
 
 ## Estadios y altitud: cómo funciona
 Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimos así:
