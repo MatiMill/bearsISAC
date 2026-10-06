@@ -118,6 +118,7 @@ def validacion_cruzada(df, parametros=PARAMETROS):
     X, y, grupos = df[FEATURES], df["outcome_id"], df[GRUPO]
     conteo = df[CONTEO]
     pred_oof = np.full((len(df), n_clases), np.nan)
+    fold_de_fila = np.full(len(df), -1, dtype=int)   # a qué fold de prueba cae cada fila
     filas, modelos = [], []
     # sumas (no promedios) de log-loss binaria por clase, para agregar sobre todo el OOF
     suma_ll_modelo = np.zeros(n_clases)
@@ -130,6 +131,7 @@ def validacion_cruzada(df, parametros=PARAMETROS):
 
         p_test = modelo.predict_proba(X.iloc[idx_test])
         pred_oof[idx_test] = p_test
+        fold_de_fila[idx_test] = parte
 
         # baseline: frecuencia de cada clase dentro de cada conteo (train del fold)
         p_base = baseline_por_conteo(y.iloc[idx_train], conteo.iloc[idx_train], conteo.iloc[idx_test])
@@ -162,7 +164,7 @@ def validacion_cruzada(df, parametros=PARAMETROS):
         "logloss_bin_baseline": suma_ll_base / n,
     })
     por_clase["mejora_%"] = 100 * (por_clase["logloss_bin_baseline"] - por_clase["logloss_bin_modelo"]) / por_clase["logloss_bin_baseline"]
-    return pd.DataFrame(filas), pred_oof, modelos, por_clase.round(4)
+    return pd.DataFrame(filas), pred_oof, modelos, por_clase.round(4), fold_de_fila
 
 
 def revisar_calibracion(df, pred_oof):
@@ -201,7 +203,7 @@ def main():
     print(f"Entrenamiento: {len(df):,} lanzamientos | {df[GRUPO].nunique():,} pitchers "
           f"(test sellado apartado: {len(_test):,} lanzamientos)\n")
 
-    resultados, pred_oof, modelos, por_clase = validacion_cruzada(df)
+    resultados, pred_oof, modelos, por_clase, fold_de_fila = validacion_cruzada(df)
 
     print("\nResumen de la validación cruzada (por pitcher):")
     print(resultados.round(4).to_string(index=False))
@@ -226,6 +228,12 @@ def main():
     salida.to_parquet(CARPETA_SALIDAS / "predicciones_oof.parquet", index=False)
     resultados.to_csv(CARPETA_SALIDAS / "validacion_multiclase.csv", index=False)
 
+    # ---- asignación de folds (pitcher -> fold de prueba), para que predecir_12_conteos
+    # use EXACTAMENTE la misma partición out-of-fold sin reconstruirla
+    folds = (pd.DataFrame({GRUPO: df[GRUPO].to_numpy(), "fold": fold_de_fila})
+             .drop_duplicates().sort_values(GRUPO))
+    folds.to_csv(CARPETA_SALIDAS / "folds.csv", index=False)
+
     # ---- guardar los 5 modelos de los folds
     CARPETA_MODELOS.mkdir(exist_ok=True)
     for parte, modelo in enumerate(modelos, start=1):
@@ -239,6 +247,7 @@ def main():
 
     print(f"\nGuardado: {CARPETA_SALIDAS / 'predicciones_oof.parquet'}")
     print(f"Guardado: {CARPETA_SALIDAS / 'validacion_multiclase.csv'}")
+    print(f"Guardado: {CARPETA_SALIDAS / 'folds.csv'} ({len(folds):,} pitchers)")
     print(f"Guardado: {CARPETA_MODELOS / 'modelo_resultado_fold{1..5}.txt'} (5 folds)")
     print(f"Guardado: {CARPETA_MODELOS / 'modelo_resultado.txt'} (final)")
 

@@ -39,7 +39,7 @@ def main():
     ll_por_valor = {}       # min_child_samples -> log-loss de los 5 folds
     for m in VALORES:
         print(f"--- min_child_samples = {m} ---")
-        resultados, _oof, _modelos, _clase = validacion_cruzada(df, {**PARAMETROS, "min_child_samples": m})
+        resultados, _oof, _modelos, _clase, _folds = validacion_cruzada(df, {**PARAMETROS, "min_child_samples": m})
         ll_por_valor[m] = resultados["logloss_modelo"].to_numpy()
         print()
 
