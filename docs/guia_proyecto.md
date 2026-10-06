@@ -115,10 +115,14 @@ Promedio ponderado de los 12 conteos: xRV = −0.006 → s = +0.006 → con μ =
 
 **Cálculo (solo promedios y restas, con datos SIN limpiar de las temporadas de entrenamiento):**
 
-1. **RE(o), o = 0, 1, 2:** carreras promedio desde que una media entrada llega a *o* outs hasta que termina. Como `Outs` nunca baja dentro de una media entrada (`game_anon_id`, `Inning`, `Top/Bottom`), basta sumar `RunsScored` de los lanzamientos con `Outs ≥ o`. No requiere el orden de los lanzamientos. RE(3) = 0.
+El dataset no dice qué corredores hay en base, pero las filas vienen en **orden cronológico**, así que se puede contar **cuántos**: `corredores = bateadores que terminaron su turno − outs − carreras`. El estado de la entrada es (outs, corredores): 12 estados (3 niveles de outs × 4 de corredores, 0–3).
+
+> **Por qué contar corredores (corrección 2026-10-05):** medir RE solo por outs falla — una base por bolas salía valiendo +0.03 carreras (MLB ≈ +0.3), porque el corredor que llega a base no cambia los outs, y entonces las bolas en 3-0 salían negativas. Como los outs no decrecen dentro de la media entrada (99.8 %), el número de corredores reconstruido es confiable y arregla el problema.
+
+1. **RE(outs, corredores):** carreras promedio desde ese estado hasta que termina la media entrada. RE = 0 cuando la entrada se acaba.
 2. **Valor de cada final de turno** (lanzamiento con `KorBB` ∈ {Strikeout, Walk} o `PitchCall` ∈ {InPlay, HitByPitch}):
-   valor = RE(min(`Outs` + `OutsOnPlay`, 3)) − RE(`Outs`) + `RunsScored`.
-   Promediado por tipo de evento da los *linear weights* (referencia MLB: HR ≈ +1.4, BB ≈ +0.3, K ≈ −0.27, out en juego ≈ −0.25).
+   valor = RE(estado al terminar) − RE(estado al empezar) + `RunsScored` del turno.
+   Promediado por tipo de evento da los *linear weights*. **Resultado 2024–2025:** BB +0.42, 1B +0.54, 2B +0.69, 3B +0.84, HR +1.44, K −0.34, out en juego −0.36 (cerca de MLB).
 3. **V(conteo):** promedio del valor final de los turnos que pasaron por ese conteo. Turno = media entrada + `batter_anon_id`; usar pares únicos (turno, conteo) porque los fouls con 2 strikes repiten conteo; descartar turnos con más de un final.
 4. **RV_k(b, s):**
    - ball: V(b+1, s) − V(b, s); con 3 bolas: V_BB − V(3, s).
@@ -126,9 +130,9 @@ Promedio ponderado de los 12 conteos: xRV = −0.006 → s = +0.006 → con μ =
    - foul: igual que strike si s < 2; **0** si s = 2.
    - in play (v0): promedio del valor de los InPlay desde ese conteo − V(b, s). En v1 lo reemplaza el modelo de contacto.
 
-Ejemplo: whiff en 1-2 = V_K − V(1-2) = −0.27 − (−0.07) = −0.20.
+Pasa 7 revisiones: RE baja con outs y sube con corredores, V sube con bolas y baja con strikes, toda bola > 0, todo strike < 0, los pesos suman 1.
 
-**Aproximaciones a documentar:** no hay corredores en base en el dataset (los valores promedian sobre esas situaciones); HitByPitch se trata como ball; carreras en lanzamientos que no terminan el turno entran en RE pero no se atribuyen al turno.
+**Aproximaciones a documentar:** se sabe **cuántos** corredores hay, no en qué base (RE promedia sobre las configuraciones de base con el mismo número de corredores); HitByPitch se trata como ball; carreras en lanzamientos que no terminan el turno entran en RE pero no se atribuyen al turno.
 
 ---
 
