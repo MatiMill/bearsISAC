@@ -69,19 +69,19 @@ Columnas a **NO** usar como features de Stuff+:
 - Revisar: proporciones (~36 / 16 / 11 / 18 / 17 %); coincidencia 100% con `is_whiff` e `is_swing`; si no coincide, adoptar la definición de ISAC.
 - Por qué 5: cada clase vale distinto y tiene causa distinta; "in play" se abre en el paso 7. Chase/rolling/contacto duro no se pierden (Location+ y modelo de contacto).
 
-#### Resultados verificados (corrida del 2026-10-05, 627,733 lanzamientos válidos)
+#### Resultados verificados (re-corrida 2026-10-05 con limpieza completa, 625,460 lanzamientos válidos)
 
-Proporción de cada clase:
+Proporción de cada clase (tras quitar bunts y filas sin `SpinAxis`; solo cambió `in_play`, que incluía los bunts):
 
 | Clase | Lanzamientos | % |
 |---|---|---|
-| ball | 237,094 | 37.8 % |
-| called_strike | 96,841 | 15.4 % |
-| whiff | 71,184 | 11.3 % |
+| ball | 237,094 | 37.9 % |
+| called_strike | 96,841 | 15.5 % |
+| whiff | 71,184 | 11.4 % |
 | foul | 107,740 | 17.2 % |
-| in_play | 114,874 | 18.3 % |
+| in_play | 112,601 | 18.0 % |
 
-- **`whiff` coincide 100 % con `is_whiff`**: 0 filas fuera de la diagonal (71,184 en `True`, 556,549 en `False`). Nuestra definición de whiff es exactamente la columna `is_whiff`.
+- **`whiff` coincide 100 % con `is_whiff`**: 0 filas fuera de la diagonal (71,184 en `True`, 554,276 en `False`). Nuestra definición de whiff es exactamente la columna `is_whiff`.
 - **`is_swing` difiere en 1,119 filas (0.18 % del total)**, el desajuste es **siempre en una sola dirección**: el ISAC marca `is_swing = 1` pero nuestro mapeo las clasifica como **no-swing** (0 filas en la dirección contraria). Son lanzamientos que `PitchCall` registra como *pitch tomado*. Desglose:
 
   | PitchCall | Filas | Nuestra clase |
@@ -109,36 +109,38 @@ Proporción de cada clase:
 - Motivo: si se eligen hiperparámetros con los mismos datos que se reportan, el resultado sale inflado.
 - `separar_test(df) -> (entrenamiento, test)`: test = `df[year == year.max()]`, entrenamiento = el resto. Genérica (cualquier `df` con columna `year`); el Paso 6 la importa con `from particion import separar_test`.
 
-#### Resultados verificados (corrida del 2026-10-05, datos limpios, 627,733 lanzamientos)
+#### Resultados verificados (re-corrida 2026-10-05, limpieza completa, 625,460 lanzamientos)
 
 Test sellado = temporada **2026** (la última; parcial, por eso no es un tercio exacto).
 
 | Parte | Lanzamientos | % | Pitchers distintos |
 |---|---|---|---|
-| entrenamiento (2024+2025) | 496,625 | 79.1 % | 829 |
-| test (2026) | 131,108 | 20.9 % | 549 |
+| entrenamiento (2024+2025) | 494,804 | 79.1 % | 829 |
+| test (2026) | 130,656 | 20.9 % | 549 |
 
 - **Pitchers del test:** 301 (54.8 %) también aparecen en entrenamiento; 248 (45.2 %) son **nuevos** (solo en test).
 - Consecuencia: la validación final (Paso 9) mezcla dos efectos a la vez —temporada nueva y pitchers nuevos—. Para un *season holdout* puro conviene reportar métricas separando los 301 pitchers vistos de los 248 nuevos.
 
-### Paso 5 · Valores de carrera (Ivana)
+### Paso 5 · Valores de carrera (`run_values.py`, Matías — hecho)
 
-Sin corredores en base → linear weights con outs. Método que no requiere el orden de los lanzamientos:
+Linear weights con **estado (outs, corredores)**. El dataset no dice qué corredores hay, pero las filas vienen en **orden cronológico**, así que se puede contar CUÁNTOS: `corredores = bateadores que terminaron su turno − outs − carreras` (12 estados = 3 niveles de outs × 4 de corredores, 0–3).
 
-- Usar los datos **sin limpiar** (los filtros quitan filas con carreras y resultados). Solo temporadas de entrenamiento.
-- Media entrada = (`game_anon_id`, `Inning`, Top/Bottom). Turno = (media entrada, `batter_anon_id`); descartar turnos con más de un lanzamiento final (el bateador volvió a batear en la misma entrada, raro).
+> **Corrección 2026-10-05 (supera el plan "solo con outs"):** medir RE solo por outs fallaba — una base por bolas valía +0.03 carreras (MLB ≈ +0.3), porque el corredor que llega a base no cambia los outs, y por eso las bolas en 3-0 salían negativas. Reconstruir el número de corredores arregla eso (los outs no decrecen dentro de la media entrada en el 99.8 %, así que el conteo es confiable).
+
+- Usar los datos **sin limpiar** (los filtros quitan filas con carreras y resultados). Solo temporadas de entrenamiento (2026 sellado).
+- Media entrada = (`game_anon_id`, `Inning`, Top/Bottom). Turno = (media entrada, `batter_anon_id`); descartar turnos con más de un lanzamiento final.
 - Lanzamiento final del turno: `KorBB` ∈ {Strikeout, Walk} o `PitchCall` ∈ {InPlay, HitByPitch}.
-- RE(o), o = 0, 1, 2: como `Outs` nunca baja dentro de una media entrada, las carreras desde que se llegó a o outs = suma de `RunsScored` en lanzamientos con `Outs` ≥ o. RE(o) = promedio sobre las medias entradas que llegaron a o outs. RE(3) = 0.
-- Valor del evento en cada lanzamiento final: RE(min(Outs + OutsOnPlay, 3)) − RE(Outs) + RunsScored.
-- V(conteo) = promedio del valor del evento final de los turnos que pasaron por ese conteo (pares únicos turno-conteo, porque los fouls con 2 strikes repiten conteo).
+- **RE(outs, corredores):** carreras promedio desde ese estado hasta que termina la media entrada. RE = 0 al terminar la entrada.
+- Valor de cada final de turno = RE(estado al terminar) − RE(estado al empezar) + `RunsScored` del turno.
+- V(conteo) = promedio del valor final de los turnos que pasaron por ese conteo (pares únicos turno-conteo, porque los fouls con 2 strikes repiten conteo).
 - RV_k(b, s), perspectiva del bateador (+ = bueno para el bateador):
   - ball: V(b+1, s) − V(b, s); si b = 3: V_walk − V(3, s).
   - called_strike, whiff: V(b, s+1) − V(b, s); si s = 2: V_K − V(b, 2).
   - foul: igual que strike si s < 2; 0 si s = 2.
-  - in_play (v0): promedio del valor del evento de los InPlay en ese conteo − V(b, s). Se reemplaza en el paso 7 por E[valor | contacto, pitch].
-  - V_walk, V_K = promedio del valor del evento de las bases por bolas y de los ponches.
-- Sanity checks: RE(0) > RE(1) > RE(2); V sube con bolas y baja con strikes; RV_ball > 0, RV_strike < 0; linear weights vs. MLB (HR ≈ +1.4, BB ≈ +0.3, K ≈ −0.27, out en juego ≈ −0.25).
-- Aproximaciones a documentar: sin corredores (promedia sobre estados de base); HBP como ball; carreras en pitches no finales (wild pitch, robo) entran en RE pero no se atribuyen al turno.
+  - in_play (v0): promedio del valor de los InPlay en ese conteo − V(b, s). Se reemplaza en el paso 7 por E[valor | contacto, pitch].
+- **Resultados verificados (2024–2025):** linear weights BB +0.42, 1B +0.54, 2B +0.69, 3B +0.84, HR +1.44, K −0.34, out en juego −0.36 (cerca de MLB). Pasan las 7 revisiones: RE baja con outs y sube con corredores, V sube con bolas y baja con strikes, toda bola > 0, todo strike < 0, los pesos suman 1.
+- Salidas (contrato §6): `../salidas/rv_tabla.csv` (`balls, strikes, outcome_class, rv`), `valores_evento.csv`, `pesos_conteo.csv`.
+- Aproximaciones: se sabe **cuántos** corredores hay, no en qué base; HBP como ball; carreras en pitches no finales (wild pitch, robo) entran en RE pero no se atribuyen al turno.
 - Robustez: repetir por `altitude_category` para ver cuánto cambia el ambiente de carreras.
 
 ### Paso 6 · Modelo de resultado (`modelo_multiclase.py`, Ricardo — v1 escrito, opción B, sin altitud)
@@ -151,13 +153,13 @@ Sin corredores en base → linear weights con outs. Método que no requiere el o
 - Combinaciones raras (p. ej. curva en 3-0): el modelo combina efecto del conteo y de la física (suma de árboles); conteos raros pesan poco (3-0 ≈ 2%). Vigilar: tabla tipo × conteo (<200 = marcar), revisar predicciones raras, correlación Stuff+ opción A vs B > 0.9. Plan B: pesos de conteo por tipo de pitch.
 - Mejora esperada sobre baseline de solo física: pequeña (≈0.5–3%). Es normal: ball/strike depende sobre todo de la ubicación.
 
-#### Resultados verificados (v1 sin altitud, corrida del 2026-10-05, entrenamiento 2024+2025)
+#### Resultados verificados (v1 sin altitud, re-corrida 2026-10-05 con limpieza completa, entrenamiento 494,804 / 829 pitchers)
 
-- Config: LightGBM multiclase con `min_child_samples=1000` (elegido por CV, ver abajo). Features: 7 físicas + `Balls`, `Strikes`. Test 2026 sellado (no entra al modelo ni al OOF). Código listo para altitud: v2 = añadir `"densidad_juego"` a `FEATURES` y nada más.
-- **Mejora sobre el baseline por conteo: ~1.0 %** de log-loss (0.92–1.11 % entre los 5 folds; log-loss modelo ≈ 1.431 vs baseline ≈ 1.447). Es lo esperado: el baseline ya conoce el conteo y la física no ve la ubicación.
-- **La señal de la física está casi toda en whiff.** Log-loss binaria (clase vs. resto), mejora del modelo sobre el baseline por conteo: whiff **2.33 %**, in_play 0.81 %, foul 0.70 %, called_strike 0.50 %, ball **0.03 %**. Confirma la hipótesis: la física separa swings fallados y calidad de contacto; para ball/strike cantado no aporta (eso es ubicación/conteo).
-- **Calibración general**: predicha vs real ≤0.25 pp por clase. **Por conteo**: diferencias <0.7 pp en los 11 conteos con datos. El único sesgo notable es **3-0** (n=6,637, ~1.3 % del total): el modelo sub-predice called_strike/ball y sobre-predice swings (whiff +0.65, foul +0.87, in_play +1.21 pp), porque arrastra probabilidad de swing desde conteos vecinos con tan pocos datos. Vigilado, no es bug; el Plan B (pesos de conteo por tipo de pitch) lo atacaría si molesta.
-- Salidas fuera del repo: `../salidas/predicciones_oof.parquet` (contrato: `PitchUID, pitcher_anon_id, Balls, Strikes, outcome_class, p_ball, p_called_strike, p_whiff, p_foul, p_in_play`), `../salidas/validacion_multiclase.csv`, `../modelos/modelo_resultado_fold{1..5}.txt` + `modelo_resultado.txt`.
+- Config: LightGBM multiclase con `min_child_samples=1000` (elegido por CV, ver abajo). Features: **8 físicas (incl. `SpinAxis`, física v1)** + `Balls`, `Strikes`. Test 2026 sellado (no entra al modelo ni al OOF). Código listo para altitud: v2 = añadir `"densidad_juego"` a `FEATURES` y nada más.
+- **Mejora sobre el baseline por conteo: 1.00 %** de log-loss (0.82–1.17 % entre los 5 folds; log-loss modelo ≈ 1.431 vs baseline ≈ 1.446). Es lo esperado: el baseline ya conoce el conteo y la física no ve la ubicación. `SpinAxis` por sí solo casi no mueve la aguja (sigue en ~1.0 %), pero es física legítima y puede ayudar al interactuar con la altitud en v2.
+- **La señal de la física está casi toda en whiff.** Log-loss binaria (clase vs. resto), mejora del modelo sobre el baseline por conteo: whiff **2.30 %**, in_play 0.80 %, foul 0.71 %, called_strike 0.52 %, ball **0.02 %**. Confirma la hipótesis: la física separa swings fallados y calidad de contacto; para ball/strike cantado no aporta (eso es ubicación/conteo).
+- **Calibración general**: predicha vs real ≤0.2 pp por clase. **Por conteo**: diferencias de ~1 pp o menos salvo en **3-0** (el conteo más raro, n≈6,600, ~1.3 % del total), donde el modelo sobre-predice swings un poco porque arrastra probabilidad desde conteos vecinos con tan pocos datos. Vigilado, no es bug; el Plan B (pesos de conteo por tipo de pitch) lo atacaría si molesta.
+- Salidas fuera del repo: `../salidas/predicciones_oof.parquet` (contrato: `PitchUID, pitcher_anon_id, Balls, Strikes, outcome_class, p_ball, p_called_strike, p_whiff, p_foul, p_in_play`), `../salidas/validacion_multiclase.csv`, `../salidas/folds.csv`, `../modelos/modelo_resultado_fold{1..5}.txt` + `modelo_resultado.txt`.
 
 Optimización de `min_child_samples` (y demás hiperparámetros):
 
@@ -183,6 +185,8 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 
 **Elegido: `min_child_samples=1000`** (en `PARAMETROS`). Es el de menor log-loss. 500 es indistinguible en la comparación pareada (1000 gana solo 2/5), pero entre iguales se prefiere el más regularizado → 1000. 2000 pierde en 5/5 folds (consistente), así que no se sube. La std pareada (~0.0001) es ~18× menor que la std entre folds (~0.0018): por eso el pareado distingue que 2000 es peor, algo invisible con la regla vieja (que daba todo "empatado").
 
+_Nota: la búsqueda se corrió antes de añadir `SpinAxis` y la limpieza completa. El modelo es insensible a `min_child_samples` en todo el rango, así que la elección (1000) se mantiene; no se re-corrió._
+
 ### Paso 7 · Modelo de contacto
 
 - Solo lanzamientos in play. Predice tipo de contacto (`hit_type`: rolling, línea, elevado, popup) y/o su valor en carreras, usando también `ExitSpeed`/`Angle` para contacto duro/barrel.
@@ -199,14 +203,22 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 
 #### Predicciones en los 12 conteos (`predecir_12_conteos.py`, insumo del Stuff+ — verificado 2026-10-05)
 
-- Para cada pitch, con la física fija, se predice `P(k | física, conteo)` en los 12 conteos (`Balls × Strikes`). **Out-of-fold:** cada pitch de entrenamiento se predice con el modelo del fold que no vio a su pitcher, leyendo `../salidas/folds.csv` (escrito por `modelo_multiclase.py`) en vez de reconstruir la partición —así un pitcher no se asigna mal en silencio si cambia el orden o los datos. Salida: `../salidas/predicciones_12conteos.parquet` (formato largo, `p_*` float32; **5,959,500 filas = 496,625 × 12**). Falta combinar con `RV_k(conteo)` y los pesos de la liga en `scoring.py` para el xRV neutral de Stuff+.
-- **Sanity verificados:** (1) las 5 probabilidades suman 1 (máx |err| ≈ 1e-7, redondeo float32); (2) en el conteo real coincide con `predicciones_oof.parquet` en los 496,625 pitches (dif. máx abs ≈ 3e-8) → features y asignación de folds bien armadas; (3) patrones con sentido: al subir strikes cae `called_strike` y suben los swings; 3-0 tiene `called_strike` ~52 % y whiff ~4 %; el slider mediano tiene más whiff que la four-seam en todo conteo (0-2: 15.2 % vs 9.2 %).
+- Para cada pitch, con la física fija, se predice `P(k | física, conteo)` en los 12 conteos (`Balls × Strikes`). **Out-of-fold:** cada pitch de entrenamiento se predice con el modelo del fold que no vio a su pitcher, leyendo `../salidas/folds.csv` (escrito por `modelo_multiclase.py`) en vez de reconstruir la partición —así un pitcher no se asigna mal en silencio si cambia el orden o los datos. Salida: `../salidas/predicciones_12conteos.parquet` (formato largo, `p_*` float32; **5,937,648 filas = 494,804 × 12**). Falta combinar con `RV_k(conteo)` y los pesos de la liga en `scoring.py` para el xRV neutral de Stuff+.
+- **Sanity verificados:** (1) las 5 probabilidades suman 1 (máx |err| ≈ 1e-7, redondeo float32); (2) en el conteo real coincide con `predicciones_oof.parquet` en los 494,804 pitches (dif. máx abs ≈ 3e-8) → features y asignación de folds bien armadas; (3) patrones con sentido: al subir strikes cae `called_strike` y suben los swings; 3-0 tiene `called_strike` ~52 % y whiff ~4 %; el slider mediano tiene más whiff que la four-seam en todo conteo (0-2: 15.7 % vs 9.5 %).
 
 ### Paso 9 · Validación final
 
 - Sobre el test sellado: log-loss/RMSE vs. baseline "xRV promedio por conteo"; curvas de calibración.
 - Pitcher holdout (GroupKFold), season holdout (última temporada), park holdout (entrenar sin la categoría de altitud alta y probar en ella).
 - Después de validar: reentrenar con todo para los scores finales.
+
+#### Chequeo preliminar en el test sellado (2026-10-05)
+
+No sustituye la validación final (esa será con el xRV/Stuff+ completo); es solo un sanity del modelo de resultado. El modelo (entrenado en 2024+2025) solo se lee, no se tunea nada contra el test.
+
+- Modelo vs baseline por conteo en 2026 (130,656 lanzamientos): log-loss 1.4449 vs 1.4607 → **mejora 1.08 %**. En CV era 1.00 % → se sostiene fuera de muestra (no sobreajusta).
+- **Generaliza a pitchers nuevos:** vistos en train 1.10 %, nuevos (no vistos) 1.05 % — casi iguales (robustez pitcher-holdout).
+- whiff (log-loss binaria): 2.46 %. Calibración dentro de ~2 pp, con una leve deriva de temporada (2026 con algo más de strikes cantados y menos bolas que 2024-25).
 
 ### Paso 10 · Altitud
 
@@ -230,10 +242,10 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 - Semilla fija 42. Instalación con `requirements.txt`.
 - Notebooks para explorar; lo definitivo va a código `.py`.
 
-## 6. Estado (2026-09-28)
+## 6. Estado (2026-10-05)
 
-- **Hecho:** `limpieza.py` v0, `modelo.py` (P(whiff | swing), referencia), README, `explorar_columnas.py`, `objetivo.py`, `modelo_multiclase.py` v1 (opción B, con conteo, sin altitud), `particion.py` (test sellado = 2026).
-- **Pendiente inmediato:** inventario del parquet (Matías); pregunta a ISAC sobre altitud/estadios/clima; búsqueda de `min_child_samples` (Paso 6); completar limpieza (bunts, SpinAxis, ángulos).
+- **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
+- **Pendiente inmediato:** `scoring.py` (xRV + escala Stuff+, Ricardo); `contacto.py` (Paso 7, Matías); Location+/Pitching+ (Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); pregunta a ISAC sobre altitud/estadios/clima.
 
 ## 7. Bitácora de cambios
 
@@ -251,3 +263,4 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 - **2026-10-05:** `limpieza.py` completo: bunts, volteo de `SpinAxis` (360 − ángulo), `HorzRelAngle` y `HorzApprAngle` para zurdos, tabla de filas quitadas por filtro (9,542 de 635,002 = 1.5 %) y `../pitches_clean.parquet`. En `modelo_multiclase.py` se agrega `SpinAxis` (mejora 1.04 % → 1.04 %, casi nada por sí solo) y se **descarta `VertRelAngle`** para Stuff+: codifica la ubicación (mejora 1.04 % → 12.35 %).
 - **2026-10-05:** `run_values.py` (paso 5, Matías). El método solo con outs falla: una base por bolas valía +0.03 carreras (MLB ≈ +0.3) porque el corredor que llega a base no cambia los outs; por eso las bolas en 3-0 salían negativas. **Cambio:** las filas del parquet están en orden cronológico (outs no decrecen en 99.8 % de las medias entradas), así que se cuenta el número de corredores en base (bateadores que terminaron − outs − carreras) y se usa RE(outs, corredores), 12 estados. Resultados con 2024–2025: BB +0.42, 1B +0.54, 2B +0.69, 3B +0.84, HR +1.44, K −0.34, out en juego −0.36; pasan las 7 revisiones (RE baja con outs y sube con corredores, V sube con bolas y baja con strikes, bolas > 0, strikes < 0, pesos suman 1). Limitación: se sabe cuántos corredores hay, no en qué base.
 - **2026-10-05:** Revisión del merge de `main` en `ricardo/objetivo-decisions` (Matías): en `modelo_multiclase.py` quedaron dos asignaciones de `FEATURES` y la segunda borraba `Balls`/`Strikes` (y `predecir_12_conteos.py` fallaba por `SpinAxis`). Corregido: `SpinAxis` va en `FISICA` y `FEATURES = FISICA + CONTEO`. Con eso: mejora 1.00 % sobre el baseline por conteo, calibración por conteo dentro de ~1 pp (3-0: 2.2 pp, n = 6,633). `altitud.py` corregido al exponente de densidad.
+- **2026-10-05:** re-corrido el pipeline completo sobre la limpieza nueva + `SpinAxis` y refrescados los números en decisions.md (Ricardo): total 625,460 (solo bajó `in_play` por los bunts → 18.0 %); partición train 494,804 / test 130,656 (829 / 549 pitchers, 301 vistos / 248 nuevos); modelo mejora CV 1.00 %, whiff 2.30 %; `predecir_12_conteos` 5,937,648 filas con sanity OK (coincide con OOF en el conteo real, dif. 3e-8); chequeo preliminar en test 2026: mejora 1.08 %, generaliza a pitchers nuevos (1.10 % vistos / 1.05 % nuevos). Alineado el cuerpo del Paso 5 al método de corredores de `run_values.py` (antes describía el de solo outs).
