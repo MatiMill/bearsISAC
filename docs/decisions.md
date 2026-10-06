@@ -232,7 +232,7 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 
 - La altitud actúa por dos canales: (1) menos movimiento (ya viene en IVB/HB medidos); (2) contacto más caro (lo aprende el modelo vía `altitude_category`).
 - Delta de altitud = mismo pitch evaluado en "alta" vs "baja", cambiando la categoría y ajustando el movimiento: IVB_bajo ≈ IVB_alto · ρ_bajo/ρ_alto (idem HB). Factor a validar empíricamente con los mismos pitchers en distintas categorías (efecto fijo por pitcher).
-- Densidad vs. altitud (atmósfera estándar, la que usa `altitud.py`): ρ/ρ₀ = (1 − 2.25577e−5·h)^4.25588. A 2,232 m, ρ ≈ 0.78 de la del nivel del mar. **Las fórmulas de física (Magnus, arrastre, reescalado de movimiento) están registradas y explicadas en [`docs/fisica_altitud.md`](fisica_altitud.md)** — para que Fran las investigue y valide.
+- Densidad vs. altitud (atmósfera estándar, la que usa `altitud.py`): ρ/ρ₀ = (1 − 2.25577e−5·h)^4.25588. A 2,232 m, ρ ≈ 0.80 de la del nivel del mar (fórmula); la densidad medida por frenado en Harp Helú es 0.82. **Las fórmulas de física (Magnus, arrastre, reescalado de movimiento) están registradas y explicadas en [`docs/fisica_altitud.md`](fisica_altitud.md)** — para que Fran las investigue y valide.
 - **Altitud de Harp Helú:** usamos **2,232 m** (`HARP_HELU_M` en `altitud.py`, fuente Mediotiempo/Milenio 4-jun-2025). El brief del ISAC dice "~2,240 m"; la diferencia (8 m) es despreciable y adoptamos 2,232 m por tener fuente citada en el código.
 - Hipótesis del brief: H1 (spin pierde en altura), H2 (cambio gana relativo), H3 (groundball pitchers valen más), H4 (spin rate solo es insuficiente; usar eficiencia).
 

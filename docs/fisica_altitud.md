@@ -27,7 +27,7 @@ $$\frac{\rho(h)}{\rho_0} = \left(1 - 2.25577\times10^{-5}\,h\right)^{4.25588}$$
 - `h` = altitud en metros; `ρ₀` = densidad al nivel del mar.
 - El exponente **4.25588** es el de **densidad**. (El 5.25588 sería el de **presión** — es un error común confundirlos; ver bitácora 2026-10-05.)
 - Viene del modelo de **Atmósfera Estándar Internacional (ISA)**, que incluye que la temperatura baja con la altura (gradiente térmico). **A verificar por Fran:** de dónde sale el exponente y bajo qué supuestos (temperatura a nivel del mar 15 °C, gradiente 6.5 °C/km).
-- En Harp Helú (2,232 m) da ρ/ρ₀ ≈ **0.78**.
+- En Harp Helú (2,232 m) da ρ/ρ₀ ≈ **0.80** (0.803). Con el exponente de presión (5.25588) saldría 0.76: por eso importa no confundirlos.
 
 ### 2.2 Aproximación exponencial (más simple, menos exacta)
 
@@ -73,7 +73,7 @@ El arrastre también es ∝ densidad:
 $$F_{\text{drag}} = \tfrac{1}{2}\,C_D\,\rho\,A\,v^2$$
 
 Dos consecuencias:
-- **Medición de la densidad:** `estadios.py` ajusta, por juego, el coeficiente de frenado de las rectas `k = a_{y0}/v^2 ∝ ρ` y define `densidad_juego = k / referencia` (referencia = mediana de los juegos "No Altitude" ⇒ ≈ 1.00 a nivel del mar, ≈ 0.78 en Harp Helú). Como se infiere del frenado real, **captura temperatura y humedad** del día automáticamente.
+- **Medición de la densidad:** `estadios.py` ajusta, por juego, el coeficiente de frenado de las rectas `k = a_{y0}/v^2 ∝ ρ` y define `densidad_juego = k / referencia` (referencia = mediana de los juegos "No Altitude" ⇒ ≈ 1.00 a nivel del mar, ≈ 0.82 en Harp Helú: mediana medida 0.823 en 123 juegos). La medida sale un poco más alta que la fórmula (0.80) porque la referencia no está exactamente al nivel del mar ni a 15 °C; `altitud.py` calibra esa diferencia con una recta (R² = 0.96). Como se infiere del frenado real, **captura temperatura y humedad** del día automáticamente.
 - **Bola bateada:** menos arrastre en altura → la bola vuela más lejos → el contacto (`in_play`) cuesta más carreras. Ese canal lo **aprende el modelo** con `densidad_juego` como feature (y lo afinará el modelo de contacto, Paso 7).
 
 Nota: la "velocidad que pierde la bola de camino al plato" (`ZoneSpeed`, `SpeedDrop`) **se excluye a propósito** de Stuff+ porque filtra la altitud de forma escondida; por eso ese sub-efecto de la velocidad no se modela directamente.
