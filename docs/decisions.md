@@ -152,18 +152,35 @@ Sin corredores en base → linear weights con outs. Método que no requiere el o
 
 #### Resultados verificados (v1 sin altitud, corrida del 2026-10-05, entrenamiento 2024+2025)
 
-- Features: 7 físicas + `Balls`, `Strikes`. Test 2026 sellado (no entra al modelo ni al OOF). Código listo para altitud: v2 = añadir `"densidad_juego"` a `FEATURES` y nada más.
-- **Mejora sobre el baseline por conteo: ~1.0 %** de log-loss (0.92–1.10 % entre los 5 folds; log-loss modelo ≈ 1.431 vs baseline ≈ 1.447). Es lo esperado: el baseline ya conoce el conteo y la física no ve la ubicación.
-- **La señal de la física está casi toda en whiff.** Log-loss binaria (clase vs. resto), mejora del modelo sobre el baseline por conteo: whiff **2.32 %**, in_play 0.80 %, foul 0.69 %, called_strike 0.50 %, ball **0.02 %**. Confirma la hipótesis: la física separa swings fallados y calidad de contacto; para ball/strike cantado no aporta (eso es ubicación/conteo).
+- Config: LightGBM multiclase con `min_child_samples=1000` (elegido por CV, ver abajo). Features: 7 físicas + `Balls`, `Strikes`. Test 2026 sellado (no entra al modelo ni al OOF). Código listo para altitud: v2 = añadir `"densidad_juego"` a `FEATURES` y nada más.
+- **Mejora sobre el baseline por conteo: ~1.0 %** de log-loss (0.92–1.11 % entre los 5 folds; log-loss modelo ≈ 1.431 vs baseline ≈ 1.447). Es lo esperado: el baseline ya conoce el conteo y la física no ve la ubicación.
+- **La señal de la física está casi toda en whiff.** Log-loss binaria (clase vs. resto), mejora del modelo sobre el baseline por conteo: whiff **2.33 %**, in_play 0.81 %, foul 0.70 %, called_strike 0.50 %, ball **0.03 %**. Confirma la hipótesis: la física separa swings fallados y calidad de contacto; para ball/strike cantado no aporta (eso es ubicación/conteo).
 - **Calibración general**: predicha vs real ≤0.25 pp por clase. **Por conteo**: diferencias <0.7 pp en los 11 conteos con datos. El único sesgo notable es **3-0** (n=6,637, ~1.3 % del total): el modelo sub-predice called_strike/ball y sobre-predice swings (whiff +0.65, foul +0.87, in_play +1.21 pp), porque arrastra probabilidad de swing desde conteos vecinos con tan pocos datos. Vigilado, no es bug; el Plan B (pesos de conteo por tipo de pitch) lo atacaría si molesta.
 - Salidas fuera del repo: `../salidas/predicciones_oof.parquet` (contrato: `PitchUID, pitcher_anon_id, Balls, Strikes, outcome_class, p_ball, p_called_strike, p_whiff, p_foul, p_in_play`), `../salidas/validacion_multiclase.csv`, `../modelos/modelo_resultado_fold{1..5}.txt` + `modelo_resultado.txt`.
 
 Optimización de `min_child_samples` (y demás hiperparámetros):
 
 - Justificación teórica: SE de una proporción = √(p(1−p)/n); con p = 0.11, n = 20 → ±14 pts (95%), n = 200 → ±4 pts. Balance bias/variance.
-- Justificación empírica (la que cuenta): probar {20, 50, 100, 200, 500, 1000, 2000} con la misma CV por pitcher en las temporadas de entrenamiento; elegir menor log-loss; si hay empate dentro de la desviación entre partes, elegir el más grande.
+- Justificación empírica (la que cuenta): probar {20, 50, 100, 200, 500, 1000, 2000} con la misma CV por pitcher en las temporadas de entrenamiento.
+- **Regla de elección (corregida 2026-10-05):** elegir el de menor log-loss; si la diferencia **pareada fold a fold** con otro valor más grande no es consistente (ese valor menor no gana en al menos 4 de 5 folds), preferir el más grande. _No usar la desviación de la log-loss entre folds como tolerancia de empate: está dominada por la distinta dificultad de cada fold, que afecta por igual a todos los valores; la comparación pareada (misma partición) cancela ese término común y es ~18× más fina._
 - Criterio extra: estabilidad del Stuff+ de cada pitcher entre temporadas.
 - Igual para `learning_rate`, `num_leaves`.
+
+#### Resultado de la búsqueda de `min_child_samples` (2026-10-05, `busqueda_min_child.py`)
+
+Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento 2024+2025):
+
+| min_child_samples | log-loss media | dif pareada vs 1000 (media) | dif std | folds que gana 1000 |
+|---:|---:|---:|---:|:---:|
+| 20 | 1.43323 | +0.00032 | 0.00019 | 5/5 |
+| 50 | 1.43315 | +0.00023 | 0.00017 | 4/5 |
+| 100 | 1.43319 | +0.00027 | 0.00031 | 5/5 |
+| 200 | 1.43308 | +0.00017 | 0.00012 | 5/5 |
+| 500 | 1.43293 | +0.00002 | 0.00010 | 2/5 |
+| **1000** | **1.43292** | 0 | 0 | — |
+| 2000 | 1.43314 | +0.00023 | 0.00011 | 5/5 |
+
+**Elegido: `min_child_samples=1000`** (en `PARAMETROS`). Es el de menor log-loss. 500 es indistinguible en la comparación pareada (1000 gana solo 2/5), pero entre iguales se prefiere el más regularizado → 1000. 2000 pierde en 5/5 folds (consistente), así que no se sube. La std pareada (~0.0001) es ~18× menor que la std entre folds (~0.0018): por eso el pareado distingue que 2000 es peor, algo invisible con la regla vieja (que daba todo "empatado").
 
 ### Paso 7 · Modelo de contacto
 
@@ -220,4 +237,5 @@ Optimización de `min_child_samples` (y demás hiperparámetros):
 - **2026-10-05:** Matías reconstruye estadios y densidad por juego → altitud continua y Harp Helú identificable.
 - **2026-10-05:** `objetivo.py` corrido con datos reales (627,733 lanzamientos). Verificado: proporciones de las 5 clases (ball 37.8 %, called_strike 15.4 %, whiff 11.3 %, foul 17.2 %, in_play 18.3 %); `whiff` coincide 100 % con `is_whiff`; `is_swing` difiere en 1,119 filas (0.18 %), todas pitches tomados (BallCalled 457, StrikeCalled 390, HitByPitch 227, BallinDirt 45) que el ISAC marca como swing — se conservan porque el target se arma desde `PitchCall`.
 - **2026-10-05:** `particion.py` escrito y corrido (Paso 4). Test sellado = temporada 2026: entrenamiento 496,625 lanzamientos / 829 pitchers (2024+2025), test 131,108 / 549 pitchers. De los pitchers del test, 301 (54.8 %) se vieron en entrenamiento y 248 (45.2 %) son nuevos.
-- **2026-10-05:** `modelo_multiclase.py` v1 (opción B, sin altitud) corrido sobre entrenamiento (2024+2025). Mejora ~1.0 % sobre el baseline por conteo; la señal de la física se concentra en whiff (log-loss binaria −2.32 %), poco en contacto y nada en ball. Calibración buena salvo sesgo leve en 3-0 (±1 pp). Contrato OOF con `Balls`/`Strikes`; guardados 5 modelos de folds + final.
+- **2026-10-05:** `modelo_multiclase.py` v1 (opción B, sin altitud) corrido sobre entrenamiento (2024+2025). Mejora ~1.0 % sobre el baseline por conteo; la señal de la física se concentra en whiff (log-loss binaria −2.33 %), poco en contacto y nada en ball. Calibración buena salvo sesgo leve en 3-0 (±1 pp). Contrato OOF con `Balls`/`Strikes`; guardados 5 modelos de folds + final.
+- **2026-10-05:** **corregida la regla de desempate de `min_child_samples`** (Paso 6). La regla vieja ("si hay empate dentro de la desviación entre partes, elegir el más grande") estaba mal: la std de log-loss entre folds está dominada por la distinta dificultad de cada fold —común a todos los valores— así que no sirve de tolerancia y daba todo "empatado" (incluido 2000). Se cambió a comparación **pareada fold a fold** (ver regla corregida en Paso 6). Búsqueda (`busqueda_min_child.py`): elegido **`min_child_samples=1000`** (menor log-loss; 500 indistinguible pero menos regularizado; 2000 pierde 5/5 folds). `PARAMETROS` actualizado a 1000 y modelo re-corrido; OOF/modelos regenerados.

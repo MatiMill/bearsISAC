@@ -59,7 +59,9 @@ PARAMETROS = dict(
     n_estimators=2000,         # máximo de árboles; early stopping decide cuántos se usan
     learning_rate=0.05,        # cuánto aporta cada árbol
     num_leaves=31,             # tamaño máximo de cada árbol
-    min_child_samples=200,     # mínimo de lanzamientos por hoja: evita memorizar ruido
+    min_child_samples=1000,    # elegido por CV (busqueda_min_child.py): menor log-loss;
+                               # 500 es indistinguible (pareado) pero se prefiere el más
+                               # regularizado, y 2000 pierde en 5/5 folds
     subsample=0.8,             # cada árbol ve el 80% de las filas...
     subsample_freq=1,
     colsample_bytree=0.8,      # ...y el 80% de las columnas
