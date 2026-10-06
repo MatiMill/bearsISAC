@@ -36,6 +36,7 @@ Columnas a **NO** usar como features de Stuff+:
 
 - `ZoneSpeed`, `SpeedDrop`, `ZoneTime`: dependen de la densidad del aire (filtran la altitud de forma escondida).
 - `VertApprAngle`, `HorzApprAngle` crudos: dependen de la ubicación. Solo usar ajustados por `PlateLocHeight` (v2).
+- `VertRelAngle` crudo: también codifica la ubicación (correlación 0.67–0.84 con `PlateLocHeight` dentro de cada tipo de pitch). Probado el 2026-10-05: sube la mejora sobre el baseline de 1.04 % a 12.35 %, casi toda por ubicación. Sí va en Location+ / Pitching+.
 - `Tilt` (repite `SpinAxis`), `VertBreak`, `pfxx`, `pfxz`, coeficientes del polinomio (redundantes).
 - `PlateLocHeight`, `PlateLocSide`, `in_strike_zone`: solo Location+ / Pitching+.
 
@@ -95,7 +96,7 @@ Proporción de cada clase:
 ### Paso 3 · Features
 
 - Física v0: `RelSpeed`, `SpinRate`, `InducedVertBreak`, `HorzBreak`, `Extension`, `RelHeight`, `RelSide`.
-- Física v1: + `SpinAxis`, `VertRelAngle`, `HorzRelAngle`.
+- Física v1: + `SpinAxis`, `HorzRelAngle`. (`VertRelAngle` descartado para Stuff+: codifica ubicación, ver arriba.)
 - Física v2: + VAA ajustado por altura en el plato; + eficiencia de spin (de ax0, az0, SpinRate, velocidad) → H4.
 - Contexto: `Balls`, `Strikes` (opción B), `altitude_category`, `BatterSide`.
 - Arsenal (por pitcher × temporada): recta primaria = tipo más usado entre Four-Seam/Sinker/Cutter; `velo_diff_vs_fb`, `ivb_diff_vs_fb`, `hb_diff_vs_fb`, `release_diff_vs_fb`, `pitch_usage_pct`.
@@ -247,3 +248,5 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 - **2026-10-05:** `predecir_12_conteos.py` (insumo del Stuff+, Paso 8): predice cada pitch en los 12 conteos out-of-fold, leyendo `../salidas/folds.csv` (nuevo, escrito por `modelo_multiclase.py`). Salida `../salidas/predicciones_12conteos.parquet` (largo, float32, 5.96M filas). Sanity: coincide con `predicciones_oof.parquet` en el conteo real (dif. máx ≈ 3e-8). Contrato §6 de la guía actualizado (nuevo artefacto + `folds.csv`).
 - **2026-10-05:** añadidos `CLAUDE.md` y `docs/guia_proyecto.md` al repo y alineados con decisions.md: contrato OOF de `modelo_multiclase.py` (§6) ahora incluye `Balls`/`Strikes`; Estado de §6 actualizado (`particion.py` hecho; módulo 6 v1 hecho con `min_child_samples=1000`, v2 agrega `densidad_juego`); unificada la altitud de Harp Helú a **2,232 m** (fuente `altitud.py`; el brief dice ~2,240 m); marcada resuelta la pregunta abierta 9.2 de la guía (apunta al Paso 2).
 - **2026-10-05:** **corregida la regla de desempate de `min_child_samples`** (Paso 6). La regla vieja ("si hay empate dentro de la desviación entre partes, elegir el más grande") estaba mal: la std de log-loss entre folds está dominada por la distinta dificultad de cada fold —común a todos los valores— así que no sirve de tolerancia y daba todo "empatado" (incluido 2000). Se cambió a comparación **pareada fold a fold** (ver regla corregida en Paso 6). Búsqueda (`busqueda_min_child.py`): elegido **`min_child_samples=1000`** (menor log-loss; 500 indistinguible pero menos regularizado; 2000 pierde 5/5 folds). `PARAMETROS` actualizado a 1000 y modelo re-corrido; OOF/modelos regenerados.
+- **2026-10-05:** `limpieza.py` completo: bunts, volteo de `SpinAxis` (360 − ángulo), `HorzRelAngle` y `HorzApprAngle` para zurdos, tabla de filas quitadas por filtro (9,542 de 635,002 = 1.5 %) y `../pitches_clean.parquet`. En `modelo_multiclase.py` se agrega `SpinAxis` (mejora 1.04 % → 1.04 %, casi nada por sí solo) y se **descarta `VertRelAngle`** para Stuff+: codifica la ubicación (mejora 1.04 % → 12.35 %).
+- **2026-10-05:** `run_values.py` (paso 5, Matías). El método solo con outs falla: una base por bolas valía +0.03 carreras (MLB ≈ +0.3) porque el corredor que llega a base no cambia los outs; por eso las bolas en 3-0 salían negativas. **Cambio:** las filas del parquet están en orden cronológico (outs no decrecen en 99.8 % de las medias entradas), así que se cuenta el número de corredores en base (bateadores que terminaron − outs − carreras) y se usa RE(outs, corredores), 12 estados. Resultados con 2024–2025: BB +0.42, 1B +0.54, 2B +0.69, 3B +0.84, HR +1.44, K −0.34, out en juego −0.36; pasan las 7 revisiones (RE baja con outs y sube con corredores, V sube con bolas y baja con strikes, bolas > 0, strikes < 0, pesos suman 1). Limitación: se sabe cuántos corredores hay, no en qué base.
