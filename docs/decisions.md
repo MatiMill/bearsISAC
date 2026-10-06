@@ -36,6 +36,7 @@ Columnas a **NO** usar como features de Stuff+:
 
 - `ZoneSpeed`, `SpeedDrop`, `ZoneTime`: dependen de la densidad del aire (filtran la altitud de forma escondida).
 - `VertApprAngle`, `HorzApprAngle` crudos: dependen de la ubicación. Solo usar ajustados por `PlateLocHeight` (v2).
+- `VertRelAngle` crudo: también codifica la ubicación (correlación 0.67–0.84 con `PlateLocHeight` dentro de cada tipo de pitch). Probado el 2026-10-05: sube la mejora sobre el baseline de 1.04 % a 12.35 %, casi toda por ubicación. Sí va en Location+ / Pitching+.
 - `Tilt` (repite `SpinAxis`), `VertBreak`, `pfxx`, `pfxz`, coeficientes del polinomio (redundantes).
 - `PlateLocHeight`, `PlateLocSide`, `in_strike_zone`: solo Location+ / Pitching+.
 
@@ -95,7 +96,7 @@ Proporción de cada clase:
 ### Paso 3 · Features
 
 - Física v0: `RelSpeed`, `SpinRate`, `InducedVertBreak`, `HorzBreak`, `Extension`, `RelHeight`, `RelSide`.
-- Física v1: + `SpinAxis`, `VertRelAngle`, `HorzRelAngle`.
+- Física v1: + `SpinAxis`, `HorzRelAngle`. (`VertRelAngle` descartado para Stuff+: codifica ubicación, ver arriba.)
 - Física v2: + VAA ajustado por altura en el plato; + eficiencia de spin (de ax0, az0, SpinRate, velocidad) → H4.
 - Contexto: `Balls`, `Strikes` (opción B), `altitude_category`, `BatterSide`.
 - Arsenal (por pitcher × temporada): recta primaria = tipo más usado entre Four-Seam/Sinker/Cutter; `velo_diff_vs_fb`, `ivb_diff_vs_fb`, `hb_diff_vs_fb`, `release_diff_vs_fb`, `pitch_usage_pct`.
@@ -198,3 +199,4 @@ Optimización de `min_child_samples` (y demás hiperparámetros):
 - **2026-09-28:** método de RV_k sin depender del orden de los lanzamientos (RE por outs con suma de `RunsScored` en `Outs` ≥ o); usar datos sin limpiar para valores de carrera.
 - **2026-10-05:** Matías reconstruye estadios y densidad por juego → altitud continua y Harp Helú identificable.
 - **2026-10-05:** `objetivo.py` corrido con datos reales (627,733 lanzamientos). Verificado: proporciones de las 5 clases (ball 37.8 %, called_strike 15.4 %, whiff 11.3 %, foul 17.2 %, in_play 18.3 %); `whiff` coincide 100 % con `is_whiff`; `is_swing` difiere en 1,119 filas (0.18 %), todas pitches tomados (BallCalled 457, StrikeCalled 390, HitByPitch 227, BallinDirt 45) que el ISAC marca como swing — se conservan porque el target se arma desde `PitchCall`.
+- **2026-10-05:** `limpieza.py` completo: bunts, volteo de `SpinAxis` (360 − ángulo), `HorzRelAngle` y `HorzApprAngle` para zurdos, tabla de filas quitadas por filtro (9,542 de 635,002 = 1.5 %) y `../pitches_clean.parquet`. En `modelo_multiclase.py` se agrega `SpinAxis` (mejora 1.04 % → 1.04 %, casi nada por sí solo) y se **descarta `VertRelAngle`** para Stuff+: codifica la ubicación (mejora 1.04 % → 12.35 %).

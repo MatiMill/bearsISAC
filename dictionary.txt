@@ -1,1 +1,9 @@
 agreguen las deficiones aca
+
+RelSpeed - Que tan rapido suelta la pelota (mph)
+SpinRate - Que tan rapido rota la pelota (rpm)
+InducedVertBreak - Movimiento vertical debido al giro (pulgadas)
+HorzBreak - Movimiento horizontal (pulgadas); despues de limpieza.py, negativo = hacia el guante
+Extension - Que tan adelante del monticulo se suelta la pelota (pies)
+RelHeight - Altura de la mano al soltar la pelota (pies)
+RelSide - Posicion lateral de la mano al soltar la pelota respecto al centro del monticulo (pies)

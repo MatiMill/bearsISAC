@@ -32,7 +32,12 @@ from objetivo import CLASES, agregar_resultado
 
 # ---------------------------------------------------------------- configuración
 FEATURES = ["RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak",
-            "Extension", "RelHeight", "RelSide"]
+            "Extension", "RelHeight", "RelSide",
+            "SpinAxis"]        # dirección del giro (ya volteada para zurdos en limpieza.py)
+# VertRelAngle NO se usa en Stuff+: dentro de cada tipo de pitch correlaciona 0.67-0.84 con
+# PlateLocHeight, o sea, codifica la ubicación (a dónde apuntó el pitcher), no la calidad.
+# Con él la mejora sobre el baseline sube de 1.04% a 12.35%, casi toda por ubicación.
+# Sí sirve para Location+ / Pitching+, donde la ubicación está permitida.
 GRUPO = "pitcher_anon_id"      # la validación se agrupa por esta columna
 N_PARTES = 5                   # partes de la validación cruzada
 SEMILLA = 42
