@@ -4,7 +4,7 @@
 Entrega: **2026-10-15** (meta interna 14 oct) · Finalistas 20 oct · Presentaciones 10–11 nov
 
 Este documento es la **fuente de verdad**: si una decisión cambia, se cambia aquí con fecha y motivo.
-_Última actualización: 2026-10-05._
+_Última actualización: 2026-10-06._
 
 ## 1. Equipo y roles
 
@@ -212,7 +212,46 @@ _Nota: la búsqueda se corrió antes de añadir `SpinAxis` y la limpieza complet
 - v1 sobre el entrenamiento **out-of-fold** (2024+2025); `in_play` con RV_k **v0**; **sin altitud**.
 - **Verificado:** (1) Stuff+ media 100 / sd 10 por temporada (241,196 pitches en 2024, 253,608 en 2025); (2) correlación a nivel pitcher Stuff+ vs tasa de whiff **r = 0.43** (n≥200, 599 pitchers) — positiva y fuerte, pero no 1, porque Stuff+ es más que whiffs; (3) **leaderboard con sentido:** arriba four-seams de 92–97 mph y rompientes de spin alto (2500–2880 rpm) con whiff 13–18 % (Stuff+ 117–124); abajo sinkers de poco spin (2000–2350) con whiff 2–9 % (Stuff+ 81–84).
 - Salidas (contrato §6): `../salidas/scores_pitch.parquet` (`PitchUID, pitcher_anon_id, AutoPitchType, year, xrv_stuff, stuff_plus`), `scores_pitcher_tipo.csv`, `scores_pitcher.csv`.
-- Pendiente: contexto `"real"` (Location+/Pitching+, Matías); RV_k de contacto (paso 7); altitud (paso 10); scores finales tras la validación (reentrenar con todo, incluir 2026).
+- Pendiente: RV_k de contacto (paso 7); altitud (paso 10); scores finales tras la validación (reentrenar con todo, incluir 2026). El contexto `"real"` ya está (ver Location+ abajo).
+
+#### Location+ (`zona.py`, `modelo_location.py`, `scoring_location.py`, Matías — verificado 2026-10-06)
+
+Pregunta: **¿la puso donde debía?** Mismo método que Stuff+ (LightGBM multiclase → xRV → 100 + 10z); cambian las features y el contexto de evaluación (conteo real). v1 sin altitud (la tabla de la sección 3 la deja opcional).
+
+**Ubicación (`zona.py`).**
+- `lado_relativo` = `PlateLocSide` con el signo del bateador (× −1 para zurdos): **+ = adentro**, − = afuera, para cualquier bateador. `PlateLocSide` no se voltea por la mano del pitcher en `limpieza.py` (es la vista del catcher). Verificado con los pelotazos: mediana +2.0 ft (zurdos) y +2.03 ft (derechos).
+- `zona`: rectángulo |`PlateLocSide`| ≤ 0.7083 ft (17" / 2) y 1.62 ≤ `PlateLocHeight` ≤ 3.21 ft, en 3 × 3 (1 alto-adentro … 9 bajo-afuera) + 10 = fuera. Coincide con `in_strike_zone` del ISAC en el **99.999 %**. Solo para reportes y el dashboard: el modelo usa las coordenadas continuas. % cantado strike en pitches tomados: 95–99 % en las filas alta y media, 81–88 % en la baja, 14.1 % fuera.
+- Se quitan los pitches con `BatterSide` desconocido (Undefined o nulo): 301 en total (0.05 %), 133 del entrenamiento.
+
+**Modelo (`modelo_location.py`).**
+- Features: `PlateLocHeight`, `lado_relativo`, `Balls`, `Strikes`, `bateador_zurdo`, `misma_mano` (las dos juntas distinguen los 4 emparejamientos pitcher/bateador), `tipo_pitch` (categórica de `AutoPitchType`, categorías fijas `TIPOS_VALIDOS`). Sin física: eso es Stuff+. `VertRelAngle` no entra (la sección 3 define Location+ como ubicación + conteo + lado + tipo; queda para Pitching+).
+- **Misma partición que Stuff+:** lee `../salidas/folds.csv` (`validacion_cruzada(..., fold_de_pitcher=...)`, parámetro nuevo y opcional en `modelo_multiclase.py`; sin él sigue usando GroupKFold igual que antes). Motivo: al quitar 133 filas, GroupKFold reparte distinto y **59 % de los pitches** habría caído en otro fold que en Stuff+; con la misma partición, las predicciones OOF de Stuff+, Location+ y Pitching+ son comparables pitch a pitch. Un `assert` lo comprueba.
+- **`min_child_samples = 2000`** (`PARAMETROS_LOCATION`; el resto igual que Stuff+). Búsqueda (`busqueda_min_child_location.py`, misma regla pareada que el Paso 6):
+
+| min_child_samples | log-loss media | dif pareada vs 1000 (media) | dif std | folds que gana 1000 |
+|---:|---:|---:|---:|:---:|
+| 20 | 1.02479 | +0.00099 | 0.00018 | 5/5 |
+| 50 | 1.02468 | +0.00087 | 0.00016 | 5/5 |
+| 100 | 1.02467 | +0.00086 | 0.00016 | 5/5 |
+| 200 | 1.02420 | +0.00039 | 0.00021 | 5/5 |
+| 500 | 1.02410 | +0.00030 | 0.00023 | 5/5 |
+| 1000 | 1.02381 | 0 | 0 | — |
+| **2000** | **1.02386** | +0.00006 | 0.00031 | 3/5 |
+
+  1000 tiene la menor log-loss, pero 2000 es indistinguible (1000 gana solo 3/5) → por la regla, el más regularizado: **2000**. Como 2000 es el borde de la malla, se probó también 5000: pierde contra 2000 en **5/5 folds** (+0.0011), así que no se sube más.
+
+**Resultados verificados** (entrenamiento 2024+2025: 494,671 pitches, 829 pitchers, folds de Stuff+):
+- **Mejora sobre el baseline por conteo: 29.18 %** de log-loss (28.91–29.42 % entre folds; modelo ≈ 1.024 vs baseline ≈ 1.446). Stuff+: 1.00 %.
+- Por clase (log-loss binaria): **ball 52.7 %**, called_strike 24.3 %, in_play 17.7 %, foul 12.5 %, whiff 9.4 %. Complementa a Stuff+: la ubicación explica ball/strike; la física, el whiff.
+- Calibración: general ≤ 0.02 pp por clase; por conteo máx 0.98 pp (ninguna celda ≥ 1 pp, también en 3-0); por zona máx 0.29 pp (fuera de la zona: ball 57.58 % real vs 57.55 % predicho).
+- Modelos recargados desde `.txt` reproducen el OOF exacto (dif. 0.0; la categórica `tipo_pitch` se guarda bien).
+
+**Score (`scoring.py` contexto `"real"` + `scoring_location.py`).**
+- `calcular_xrv(df, "real")`: xRV = Σ_k P(k)·RV_k(conteo real); `xrv_vs_conteo` = xRV − xRV promedio de la liga en ese conteo (tabla guardada en `xrv_promedio_conteo_location.csv`, para calificar pitches nuevos con `promedio_conteo=`). Location+ = `a_escala_plus(−xrv_vs_conteo, year)`. El contexto `"neutral"` no cambió: reproduce `scores_pitch.parquet` exacto (dif. 0.0).
+- El xRV promedio por conteo sale casi 0 (−0.003 a +0.003) salvo 3-0 (−0.012) y 3-1 (−0.007). Lo esperado es ≈ 0: V(conteo) ya es el valor esperado desde ese conteo, así que el siguiente pitch en promedio no lo mueve. En 3-0 la desviación **no es del modelo**: el valor real promedio de lo que pasó (RV_k del resultado observado) también es negativo, −0.0094 (predicho −0.0118; en 3-1 ambos −0.0069). Viene de las aproximaciones de `run_values.py` (corredores sin base exacta, `in_play` v0, turnos descartados). Restar el promedio del conteo lo neutraliza en Location+. Queda anotado para revisar en `run_values.py`.
+- **Sanity verificados:** (1) media 100 / sd 10 por temporada (241,166 pitches en 2024, 253,505 en 2025); (2) cada conteo centrado en 0 tras restar (máx |media| ≈ 4e-18); (3) **la buena ubicación depende del conteo**: en 3-0 dentro de la zona 112–115 y fuera 88.7; en 0-2 el centro de la zona es lo peor (96.8) y las esquinas bajas/afuera lo mejor (101–102); (4) a nivel pitcher (n ≥ 200, 599 pitchers) Location+ vs tasa de bolas **r = −0.74**; (5) Location+ vs Stuff+ **r = 0.04** (miden cosas distintas, como se buscaba). Estabilidad 2024 → 2025 (181 pitchers con ≥ 200 pitches en cada año): Location+ **r = 0.62**, Stuff+ r = 0.78. Stuff+ es más estable que Location+, como se ve también en MLB: el comando varía más de año a año que el "stuff".
+- Salidas (contrato §6 de la guía): `../salidas/predicciones_oof_location.parquet`, `validacion_location.csv`, `scores_location_pitch.parquet`, `scores_location_pitcher_tipo.csv`, `scores_location_pitcher.csv`, `xrv_promedio_conteo_location.csv`; `../modelos/modelo_location_fold{1..5}.txt` + `modelo_location.txt`.
+- Pendiente: `in_play` con RV_k de contacto (paso 7); validación en el test sellado (paso 9); scores finales tras reentrenar con todo; altitud opcional.
 
 ### Paso 9 · Validación final
 
@@ -246,14 +285,14 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 ## 5. Convenciones de trabajo
 
 - Rama por tarea (`nombre/tema`), PR con revisión, nunca push a `main`.
-- `.gitignore` bloquea `*.parquet`, `*.csv` (excepto `config/*.csv`), `models/`.
+- `.gitignore` bloquea `*.parquet`, `*.csv` (excepto `config/*.csv`), `models/`, `modelos/`, `salidas/` y `graphify-out/` (corregido 2026-10-06: antes el archivo no tenía estas reglas aunque aquí se decía que sí).
 - Semilla fija 42. Instalación con `requirements.txt`.
 - Notebooks para explorar; lo definitivo va a código `.py`.
 
-## 6. Estado (2026-10-05)
+## 6. Estado (2026-10-06)
 
-- **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `scoring.py` v1 (Stuff+ neutral), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
-- **Pendiente inmediato:** `contacto.py` (Paso 7, Matías); Location+/Pitching+ (Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
+- **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `scoring.py` v1 (Stuff+ neutral + contexto real), **Location+ completo** (`zona.py`, `modelo_location.py`, `busqueda_min_child_location.py`, `scoring_location.py`), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
+- **Pendiente inmediato:** `contacto.py` (Paso 7, Matías); Pitching+ (Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
 
 ## 7. Bitácora de cambios
 
@@ -274,3 +313,5 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 - **2026-10-05:** registradas y explicadas las fórmulas de física de la altitud en `docs/fisica_altitud.md` (densidad vs. altitud, Magnus → movimiento ∝ ρ, arrastre, `densidad_juego` medida, límites como el viento, y preguntas para que **Fran** las investigue). Alineada la fórmula de densidad: se usa la ley de potencias de la atmósfera estándar `(1 − 2.25577e−5·h)^4.25588` (como `altitud.py`), no la exponencial `e^(−h/8400)` que mencionaban versiones viejas.
 - **2026-10-05:** `scoring.py` (Paso 8, Ricardo): xRV neutral (Σ_k P(k)·RV_k promediado sobre los 12 conteos con pesos de la liga) + escala Stuff+ = 100 + 10z por temporada. v1 sobre entrenamiento OOF, `in_play` con RV_k v0, sin altitud. Verificado: Stuff+ media 100 / sd 10 por temporada; correlación Stuff+ vs tasa de whiff r = 0.43 (nivel pitcher); leaderboard con sentido (four-seams rápidas de alto spin y rompientes de whiff alto arriba, Stuff+ 117–124; sinkers de poco spin abajo, 81–84). Salidas `scores_pitch.parquet`, `scores_pitcher_tipo.csv`, `scores_pitcher.csv`. Falta: contexto real (Location+/Pitching+), RV_k de contacto, altitud y scores finales.
 - **2026-10-05:** re-corrido el pipeline completo sobre la limpieza nueva + `SpinAxis` y refrescados los números en decisions.md (Ricardo): total 625,460 (solo bajó `in_play` por los bunts → 18.0 %); partición train 494,804 / test 130,656 (829 / 549 pitchers, 301 vistos / 248 nuevos); modelo mejora CV 1.00 %, whiff 2.30 %; `predecir_12_conteos` 5,937,648 filas con sanity OK (coincide con OOF en el conteo real, dif. 3e-8); chequeo preliminar en test 2026: mejora 1.08 %, generaliza a pitchers nuevos (1.10 % vistos / 1.05 % nuevos). Alineado el cuerpo del Paso 5 al método de corredores de `run_values.py` (antes describía el de solo outs).
+- **2026-10-06:** **Location+ completo** (Matías). `zona.py` (`lado_relativo` + = adentro, verificado con pelotazos; zonas 1–9 + fuera, 99.999 % igual a `in_strike_zone`); `modelo_location.py` (ubicación + conteo + mano + tipo de pitch, mismos folds que Stuff+ vía `folds.csv`: con GroupKFold propio el 59 % de los pitches cambiaba de fold); `min_child_samples = 2000` por la regla pareada (1000 menor log-loss pero 2000 indistinguible, 3/5; 5000 pierde 5/5). Mejora sobre el baseline por conteo 29.18 % (ball 52.7 %, called_strike 24.3 %), calibración ≤ 1 pp por conteo. Score: `calcular_xrv(df, "real")` en `scoring.py` (xRV en el conteo real − promedio del conteo; `"neutral"` intacto, reproduce Stuff+ exacto) + `scoring_location.py`. Sanity: 3-0 dentro de la zona ≈ 114 vs fuera 89; 0-2 centro de la zona 97 y esquinas 101–102; Location+ vs tasa de bolas r = −0.74; vs Stuff+ r = 0.04; estabilidad 2024 → 2025 r = 0.62 (Stuff+ 0.78). Cambios en módulos de Ricardo (avisado en el PR): `validacion_cruzada(..., features=None, fold_de_pitcher=None)` en `modelo_multiclase.py` y el contexto `"real"` en `scoring.py`, ambos opcionales y sin cambiar el comportamiento previo.
+- **2026-10-06:** `.gitignore` corregido: no bloqueaba `*.parquet`/`*.csv` aunque §5 decía que sí (ningún dato estaba subido). Agregados `*.parquet`, `*.csv` (salvo `config/*.csv`), `models/`, `modelos/`, `salidas/`, `graphify-out/`, `.graphify/`. Guía §6: fila de `limpieza.py` al día (decía pendientes ya hechos) y convención de reusar `folds.csv`.

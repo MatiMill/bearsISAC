@@ -116,10 +116,24 @@ def baseline_por_conteo(y_train, conteo_train, conteo_test):
     return p
 
 
-def validacion_cruzada(df, parametros=PARAMETROS):
-    """Devuelve (tabla por parte, predicciones fuera de muestra, 5 modelos, tabla por clase)."""
+def validacion_cruzada(df, parametros=PARAMETROS, features=None, fold_de_pitcher=None):
+    """Devuelve (tabla por parte, predicciones fuera de muestra, 5 modelos, tabla por clase).
+
+    `features`: columnas que ve el modelo. Por defecto FEATURES (Stuff+); otros modelos
+    (p. ej. Location+ en modelo_location.py) pasan su propia lista.
+    `fold_de_pitcher`: Series pitcher -> fold (1..N_PARTES), p. ej. leída de folds.csv, para
+    reutilizar EXACTAMENTE la partición de Stuff+. Por defecto se arma con GroupKFold.
+    """
     n_clases = len(CLASES)
-    X, y, grupos = df[FEATURES], df["outcome_id"], df[GRUPO]
+    features = FEATURES if features is None else features
+    X, y, grupos = df[features], df["outcome_id"], df[GRUPO]
+    if fold_de_pitcher is None:
+        particion = GroupKFold(n_splits=N_PARTES).split(X, y, grupos)
+    else:
+        fold = grupos.map(fold_de_pitcher)
+        assert fold.notna().all(), "hay pitchers sin fold asignado"
+        fold = fold.to_numpy()
+        particion = [(np.flatnonzero(fold != k), np.flatnonzero(fold == k)) for k in range(1, N_PARTES + 1)]
     conteo = df[CONTEO]
     pred_oof = np.full((len(df), n_clases), np.nan)
     fold_de_fila = np.full(len(df), -1, dtype=int)   # a qué fold de prueba cae cada fila
@@ -128,7 +142,7 @@ def validacion_cruzada(df, parametros=PARAMETROS):
     suma_ll_modelo = np.zeros(n_clases)
     suma_ll_base = np.zeros(n_clases)
 
-    for parte, (idx_train, idx_test) in enumerate(GroupKFold(n_splits=N_PARTES).split(X, y, grupos), start=1):
+    for parte, (idx_train, idx_test) in enumerate(particion, start=1):
         modelo = entrenar_con_early_stopping(X.iloc[idx_train], y.iloc[idx_train], grupos.iloc[idx_train], parametros)
         assert list(modelo.classes_) == list(range(n_clases)), "falta alguna clase en el entrenamiento"
         modelos.append(modelo)
