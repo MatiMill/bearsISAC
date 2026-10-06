@@ -1,6 +1,6 @@
 # Decisiones y especificación del proyecto · bearsISAC
 
-**Hackathon ISAC 2026 · Stuff+ para la LMB / Diablos Rojos (Harp Helú, 2,240 m)**
+**Hackathon ISAC 2026 · Stuff+ para la LMB / Diablos Rojos (Harp Helú, 2,232 m)**
 Entrega: **2026-10-15** (meta interna 14 oct) · Finalistas 20 oct · Presentaciones 10–11 nov
 
 Este documento es la **fuente de verdad**: si una decisión cambia, se cambia aquí con fecha y motivo.
@@ -206,7 +206,8 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 
 - La altitud actúa por dos canales: (1) menos movimiento (ya viene en IVB/HB medidos); (2) contacto más caro (lo aprende el modelo vía `altitude_category`).
 - Delta de altitud = mismo pitch evaluado en "alta" vs "baja", cambiando la categoría y ajustando el movimiento: IVB_bajo ≈ IVB_alto · ρ_bajo/ρ_alto (idem HB). Factor a validar empíricamente con los mismos pitchers en distintas categorías (efecto fijo por pitcher).
-- Densidad por categoría: p = p₀·e^(−h/8400), ρ = p/(R·T). A 2,240 m, ρ ≈ 0.77–0.80 de la del nivel del mar.
+- Densidad por categoría: p = p₀·e^(−h/8400), ρ = p/(R·T). A 2,232 m, ρ ≈ 0.77–0.80 de la del nivel del mar.
+- **Altitud de Harp Helú:** usamos **2,232 m** (`HARP_HELU_M` en `altitud.py`, fuente Mediotiempo/Milenio 4-jun-2025). El brief del ISAC dice "~2,240 m"; la diferencia (8 m) es despreciable y adoptamos 2,232 m por tener fuente citada en el código.
 - Hipótesis del brief: H1 (spin pierde en altura), H2 (cambio gana relativo), H3 (groundball pitchers valen más), H4 (spin rate solo es insuficiente; usar eficiencia).
 
 ### Paso 11 · Productos
@@ -238,4 +239,5 @@ Comparación pareada contra 1000 (misma CV GroupKFold por pitcher, entrenamiento
 - **2026-10-05:** `objetivo.py` corrido con datos reales (627,733 lanzamientos). Verificado: proporciones de las 5 clases (ball 37.8 %, called_strike 15.4 %, whiff 11.3 %, foul 17.2 %, in_play 18.3 %); `whiff` coincide 100 % con `is_whiff`; `is_swing` difiere en 1,119 filas (0.18 %), todas pitches tomados (BallCalled 457, StrikeCalled 390, HitByPitch 227, BallinDirt 45) que el ISAC marca como swing — se conservan porque el target se arma desde `PitchCall`.
 - **2026-10-05:** `particion.py` escrito y corrido (Paso 4). Test sellado = temporada 2026: entrenamiento 496,625 lanzamientos / 829 pitchers (2024+2025), test 131,108 / 549 pitchers. De los pitchers del test, 301 (54.8 %) se vieron en entrenamiento y 248 (45.2 %) son nuevos.
 - **2026-10-05:** `modelo_multiclase.py` v1 (opción B, sin altitud) corrido sobre entrenamiento (2024+2025). Mejora ~1.0 % sobre el baseline por conteo; la señal de la física se concentra en whiff (log-loss binaria −2.33 %), poco en contacto y nada en ball. Calibración buena salvo sesgo leve en 3-0 (±1 pp). Contrato OOF con `Balls`/`Strikes`; guardados 5 modelos de folds + final.
+- **2026-10-05:** añadidos `CLAUDE.md` y `docs/guia_proyecto.md` al repo y alineados con decisions.md: contrato OOF de `modelo_multiclase.py` (§6) ahora incluye `Balls`/`Strikes`; Estado de §6 actualizado (`particion.py` hecho; módulo 6 v1 hecho con `min_child_samples=1000`, v2 agrega `densidad_juego`); unificada la altitud de Harp Helú a **2,232 m** (fuente `altitud.py`; el brief dice ~2,240 m); marcada resuelta la pregunta abierta 9.2 de la guía (apunta al Paso 2).
 - **2026-10-05:** **corregida la regla de desempate de `min_child_samples`** (Paso 6). La regla vieja ("si hay empate dentro de la desviación entre partes, elegir el más grande") estaba mal: la std de log-loss entre folds está dominada por la distinta dificultad de cada fold —común a todos los valores— así que no sirve de tolerancia y daba todo "empatado" (incluido 2000). Se cambió a comparación **pareada fold a fold** (ver regla corregida en Paso 6). Búsqueda (`busqueda_min_child.py`): elegido **`min_child_samples=1000`** (menor log-loss; 500 indistinguible pero menos regularizado; 2000 pierde 5/5 folds). `PARAMETROS` actualizado a 1000 y modelo re-corrido; OOF/modelos regenerados.

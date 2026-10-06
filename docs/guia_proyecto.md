@@ -142,9 +142,9 @@ Cada módulo lee y escribe cosas con estos nombres. Si respetas el contrato, pue
 | 2 | `objetivo.py` | DataFrame | `CLASES = ["ball","called_strike","whiff","foul","in_play"]`; `agregar_resultado(df)` agrega `outcome_class` y `outcome_id` (0–4, en ese orden) | Hecho y verificado |
 | — | `estadios.py` | parquet crudo | `../estadios.parquet`: `game_anon_id, year, estadio, altitud, densidad_juego, harp_helu` | Hecho (Matías) |
 | — | `altitud.py` | `../estadios.parquet` | `../altitudes.parquet`: por estadio, densidad medida, altitud real y estimada | Hecho; falta corregir exponente (4.25588) |
-| 4 | `particion.py` (nuevo) | DataFrame | `separar_test(df) -> (entrenamiento, test)`; test = última temporada (`year`) | Pendiente |
+| 4 | `particion.py` | DataFrame | `separar_test(df) -> (entrenamiento, test)`; test = última temporada (`year`) | Hecho |
 | 5 | `run_values.py` (nuevo) | parquet crudo (sin limpiar), solo temporadas de entrenamiento | `../salidas/rv_tabla.csv`: `balls, strikes, outcome_class, rv`; `../salidas/valores_evento.csv` (linear weights); `../salidas/pesos_conteo.csv`: `balls, strikes, peso` | Pendiente |
-| 6 | `modelo_multiclase.py` | entrenamiento + `estadios.parquet` | `../salidas/predicciones_oof.parquet`: `PitchUID, pitcher_anon_id, outcome_class, p_ball, p_called_strike, p_whiff, p_foul, p_in_play`; `../modelos/modelo_resultado.txt`; tabla de validación | v0 hecho; falta `Balls`, `Strikes`, densidad, baseline por conteo, búsqueda de `min_child_samples` |
+| 6 | `modelo_multiclase.py` | entrenamiento (v2: + `estadios.parquet`) | `../salidas/predicciones_oof.parquet`: `PitchUID, pitcher_anon_id, Balls, Strikes, outcome_class, p_ball, p_called_strike, p_whiff, p_foul, p_in_play`; `../modelos/modelo_resultado.txt`; tabla de validación | v1 hecho (sin altitud, `min_child_samples = 1000`); v2 agrega `densidad_juego` |
 | 7 | `contacto.py` (nuevo) | lanzamientos in play | modelo de E[valor | contacto, pitch, densidad]; reemplaza RV de in play | Pendiente |
 | 8 | `scoring.py` (nuevo) | modelo + `rv_tabla.csv` + `pesos_conteo.csv` | `calcular_xrv(df, contexto)` con contexto `"neutral"` (Stuff+) o `"real"` (Location+/Pitching+); `a_escala_plus(s, year)`; `../salidas/scores_pitch.parquet`, `scores_pitcher_tipo.csv`, `scores_pitcher.csv` | Pendiente |
 | 10 | altitud (en `scoring.py`) | pitch + densidades | `ajustar_movimiento(ivb, hb, rho_origen, rho_destino)` y delta de Stuff+ Harp Helú vs. nivel del mar | Pendiente |
@@ -199,5 +199,5 @@ Cada módulo lee y escribe cosas con estos nombres. Si respetas el contrato, pue
 
 ## 9. Preguntas abiertas
 - ¿Qué tan claro sale Harp Helú frente al segundo mejor local de altitud extrema? ¿Qué R² tiene la recta de `altitud.py`?
-- ¿Las 1,119 filas de swing son swings a medias? (documentar).
+- ✅ Resuelta: las 1,119 filas de swing (`is_swing = 1` pero `PitchCall` de pitch tomado) quedaron documentadas en el Paso 2 de `decisions.md` (BallCalled 457, StrikeCalled 390, HitByPitch 227, BallinDirt 45; se mantiene la clase según `PitchCall`).
 - ¿Usamos `densidad_juego` (continua) o el estadio como variable de altitud en el modelo? Propuesta: densidad continua.
