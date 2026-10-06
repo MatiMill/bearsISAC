@@ -40,14 +40,11 @@ from particion import separar_test
 
 # ---------------------------------------------------------------- configuración
 FISICA = ["RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak",
-          "Extension", "RelHeight", "RelSide"]
+          "Extension", "RelHeight", "RelSide",
+          "SpinAxis"]                      # dirección del giro (ya volteada para zurdos en limpieza.py)
 CONTEO = ["Balls", "Strikes"]              # opción B: el conteo entra como feature
 # Para altitud v2: FEATURES = FISICA + CONTEO + ["densidad_juego"]  (y nada más).
 FEATURES = FISICA + CONTEO
-
-FEATURES = ["RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak",
-            "Extension", "RelHeight", "RelSide",
-            "SpinAxis"]        # dirección del giro (ya volteada para zurdos en limpieza.py)
 # VertRelAngle NO se usa en Stuff+: dentro de cada tipo de pitch correlaciona 0.67-0.84 con
 # PlateLocHeight, o sea, codifica la ubicación (a dónde apuntó el pitcher), no la calidad.
 # Con él la mejora sobre el baseline sube de 1.04% a 12.35%, casi toda por ubicación.

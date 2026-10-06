@@ -58,13 +58,14 @@ ALTITUDES = {
 
 
 def densidad_esperada(h):
-    #Regresion lineal de una sobre otra 
-    return (1 - 2.25577e-5 * h) ** 5.25588
+    #Densidad del aire a altitud h, relativa al nivel del mar (atmósfera estándar).
+    #El exponente 4.25588 es el de densidad; 5.25588 sería el de presión.
+    return (1 - 2.25577e-5 * h) ** 4.25588
 
 
 def altitud_desde_densidad(d):
-    #Inversa de regresion lineal
-    return (1 - d ** (1 / 5.25588)) / 2.25577e-5
+    #Al revés: de densidad relativa a altitud en metros
+    return (1 - d ** (1 / 4.25588)) / 2.25577e-5
 
 
 #Densidad media por estadio
