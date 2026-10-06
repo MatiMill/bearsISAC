@@ -178,7 +178,7 @@ Cada módulo lee y escribe cosas con estos nombres. Si respetas el contrato, pue
 7. **Modelo de contacto:** solo in play; valor del contacto según el pitch y la densidad (en altura los elevados cuestan más).
 8. **xRV y escala:** sección 3 y 4.
 9. **Validación final** en el test sellado: contra baseline, calibración, park holdout (entrenar sin Harp Helú o sin altitud extrema y probar ahí).
-10. **Altitud:** delta de Stuff+ del mismo pitch en Harp Helú vs. nivel del mar, por tipo de pitch. Dos canales: (1) menos movimiento — ya viene en IVB/HB medidos, así que para el contrafactual se ajusta IVB_destino ≈ IVB_origen · ρ_destino/ρ_origen (igual HB); (2) contacto más caro — lo aprende el modelo vía la densidad. Hipótesis del brief: H1 (spin pierde en altura), H2 (cambio gana relativo), H3 (groundball pitchers valen más), H4 (spin rate solo no basta; usar eficiencia de spin con `ax0`, `az0`).
+10. **Altitud:** delta de Stuff+ del mismo pitch en Harp Helú vs. nivel del mar, por tipo de pitch. Dos canales: (1) menos movimiento — ya viene en IVB/HB medidos, así que para el contrafactual se ajusta IVB_destino ≈ IVB_origen · ρ_destino/ρ_origen (igual HB); (2) contacto más caro — lo aprende el modelo vía la densidad. Las **fórmulas de física y sus supuestos** (densidad vs. altitud, Magnus, arrastre, reescalado) están en [`docs/fisica_altitud.md`](fisica_altitud.md). Hipótesis del brief: H1 (spin pierde en altura), H2 (cambio gana relativo), H3 (groundball pitchers valen más), H4 (spin rate solo no basta; usar eficiencia de spin con `ax0`, `az0`).
 11. **Productos:** scores, perfil ideal, recomendaciones, dashboard, documento técnico.
 
 ---
