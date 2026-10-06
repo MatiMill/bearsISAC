@@ -2,9 +2,13 @@
 
 Hackathon ISAC 2026 · Diablos Rojos · ITAM
 
-Modelo **Stuff+**: califica la calidad de cada pitch a partir de sus propiedades físicas
-(velocidad, spin, movimiento, punto de salida), ajustado por la altitud del estadio.
-100 = promedio de la liga, 110 = una desviación estándar mejor que el promedio.
+Tres calificaciones por lanzamiento para la LMB, calibradas por altitud (Diablos Rojos, Harp Helú, ~2,232 m):
+
+- **Stuff+**: ¿qué tan buena es la bola? Solo física (velocidad, spin, movimiento, punto de salida).
+- **Location+**: ¿la puso donde debía? Solo ubicación, dado el conteo, el bateador y el tipo de pitch.
+- **Pitching+**: ¿qué tan bueno fue el lanzamiento completo? Todo junto (pendiente).
+
+En las tres, 100 = promedio de la liga y 110 = una desviación estándar mejor que el promedio.
 
 **Entrega: 2026-10-15**
 
@@ -26,25 +30,42 @@ DIABLOS/
 │   ├── predicciones_12conteos.parquet← lo genera predecir_12_conteos.py
 │   ├── rv_tabla.csv                  ← lo genera run_values.py
 │   ├── valores_evento.csv            ← lo genera run_values.py
-│   └── pesos_conteo.csv              ← lo genera run_values.py
-├── modelos/                          ← lo genera modelo_multiclase.py
-│   ├── modelo_resultado.txt          ← modelo final
-│   └── modelo_resultado_fold1..5.txt ← un modelo por fold
+│   ├── pesos_conteo.csv              ← lo genera run_values.py
+│   ├── scores_pitch.parquet          ← Stuff+ por pitch (scoring.py)
+│   ├── scores_pitcher_tipo.csv       ← Stuff+ por pitcher × tipo (scoring.py)
+│   ├── scores_pitcher.csv            ← Stuff+ por pitcher (scoring.py)
+│   ├── predicciones_oof_location.parquet ← lo genera modelo_location.py
+│   ├── validacion_location.csv       ← lo genera modelo_location.py
+│   ├── scores_location_pitch.parquet ← Location+ por pitch (scoring_location.py)
+│   ├── scores_location_pitcher_tipo.csv / scores_location_pitcher.csv
+│   └── xrv_promedio_conteo_location.csv ← promedio que se resta en cada conteo
+├── modelos/
+│   ├── modelo_resultado.txt          ← Stuff+: modelo final (modelo_multiclase.py)
+│   ├── modelo_resultado_fold1..5.txt ← Stuff+: un modelo por fold
+│   ├── modelo_location.txt           ← Location+: modelo final (modelo_location.py)
+│   └── modelo_location_fold1..5.txt  ← Location+: un modelo por fold
 └── bearsISAC/                        ← este repo
     ├── CLAUDE.md
+    ├── requirements.txt
     ├── limpieza.py
     ├── objetivo.py
     ├── particion.py
+    ├── run_values.py
     ├── modelo_multiclase.py
     ├── busqueda_min_child.py
     ├── predecir_12_conteos.py
-    ├── run_values.py
+    ├── scoring.py
+    ├── zona.py
+    ├── modelo_location.py
+    ├── busqueda_min_child_location.py
+    ├── scoring_location.py
     ├── estadios.py
     ├── altitud.py
     ├── dictionary.txt
     └── docs/
         ├── guia_proyecto.md
-        └── decisions.md
+        ├── decisions.md
+        └── fisica_altitud.md
 ```
 
 Los scripts guardan sus resultados en `DIABLOS/`, fuera del repo, porque también son datos del ISAC.
@@ -54,8 +75,10 @@ Los scripts guardan sus resultados en `DIABLOS/`, fuera del repo, porque tambié
 sudo apt install python3-venv libgomp1
 python3 -m venv ~/venvs/bears
 source ~/venvs/bears/bin/activate
-pip install pandas pyarrow lightgbm scikit-learn pybaseball
+pip install -r requirements.txt
 ```
+
+En Windows (PowerShell): `python -m venv .venv`, `.venv\Scripts\Activate.ps1` y `pip install -r requirements.txt`.
 
 Cada vez que abras una terminal nueva, activa el entorno:
 ```bash
@@ -68,11 +91,21 @@ Desde la carpeta del repo, con el entorno activado:
 python limpieza.py              # limpia los datos e imprime la tabla de filas quitadas
 python objetivo.py              # revisa el target de 5 resultados contra los datos
 python particion.py             # muestra el split entrenamiento / test sellado
-python modelo_multiclase.py     # modelo principal: probabilidad de cada resultado
-python predecir_12_conteos.py   # predice cada pitch en los 12 conteos (necesita modelo_multiclase.py antes)
 python run_values.py            # precio en carreras de cada resultado según el conteo
 
-python busqueda_min_child.py    # (lento, opcional) elige min_child_samples por validación cruzada
+# Stuff+
+python modelo_multiclase.py     # modelo de física: probabilidad de cada resultado (escribe folds.csv)
+python predecir_12_conteos.py   # predice cada pitch en los 12 conteos (necesita modelo_multiclase.py)
+python scoring.py               # Stuff+ (necesita predecir_12_conteos.py y run_values.py)
+
+# Location+ (necesita folds.csv de modelo_multiclase.py y rv_tabla.csv de run_values.py)
+python zona.py                  # revisiones de la zona de strike y del lado del bateador
+python modelo_location.py       # modelo de ubicación: probabilidad de cada resultado
+python scoring_location.py      # Location+ (necesita modelo_location.py)
+
+# (lentos, opcionales) eligen min_child_samples por validación cruzada
+python busqueda_min_child.py            # Stuff+    (resultado: 1000)
+python busqueda_min_child_location.py   # Location+ (resultado: 2000)
 
 python estadios.py    # 1) estadio y densidad del aire de cada juego
 python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
@@ -87,12 +120,19 @@ python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
 | `modelo_multiclase.py` | Modelo principal. LightGBM multiclase que predice la probabilidad de cada uno de los 5 resultados con la física del pitch (+ `SpinAxis`) y el conteo (`Balls`, `Strikes`). Usa solo el entrenamiento. Validación cruzada de 5 partes por pitcher contra un baseline por conteo, y calibración general y por conteo. Guarda las predicciones fuera de muestra y `folds.csv` en `../salidas/`, y los 5 modelos de fold más el final en `../modelos/`. |
 | `busqueda_min_child.py` | Prueba `min_child_samples` ∈ {20 … 2000} con la misma validación cruzada y elige con comparación pareada fold a fold. Resultado: 1000. Tarda bastante (35 entrenamientos). |
 | `predecir_12_conteos.py` | Para cada pitch, deja fija la física y predice las 5 probabilidades en los **12 conteos**, con el modelo del fold que no vio a su pitcher. Es el insumo para el Stuff+ neutral al conteo. Guarda `predicciones_12conteos.parquet`. |
+| `scoring.py` | Convierte probabilidades en carreras y en escala 100 + 10z. `calcular_xrv(df, "neutral")` promedia los 12 conteos (Stuff+); `calcular_xrv(df, "real")` usa el conteo real y le resta el promedio de ese conteo (Location+, Pitching+). Al correrlo genera el Stuff+ y sus revisiones. |
+| `zona.py` | Ubicación vista desde el bateador: `lado_relativo` (+ = adentro, para derechos y zurdos) y zonas 1–9 dentro de la zona de strike + 10 fuera. `preparar_ubicacion(df)` agrega las columnas que usa Location+. |
+| `modelo_location.py` | Modelo de Location+: LightGBM multiclase con ubicación, conteo, mano del bateador y tipo de pitch (sin física). Usa **los mismos folds** que Stuff+ (`folds.csv`). Guarda predicciones fuera de muestra y modelos. |
+| `busqueda_min_child_location.py` | Igual que `busqueda_min_child.py`, para Location+. Resultado: 2000. |
+| `scoring_location.py` | Location+ por pitch, pitcher × tipo y pitcher, más 5 revisiones (zona por conteo, tasa de bolas, correlación con Stuff+, estabilidad entre temporadas). |
 | `run_values.py` | Calcula el precio en carreras de cada resultado según el conteo (`RV_k`), con datos sin limpiar de las temporadas de entrenamiento. Guarda `rv_tabla.csv`, `valores_evento.csv` y `pesos_conteo.csv` en `../salidas/`. |
 | `estadios.py` | Reconstruye en qué estadio se jugó cada juego (los datos no lo dicen), mide la densidad del aire con el frenado de las rectas e identifica los juegos en el Harp Helú. Genera `estadios.parquet`. |
 | `altitud.py` | Calibra la densidad medida con las altitudes reales de los 20 estadios de la LMB y estima la altitud de cada uno. Genera `altitudes.parquet`. |
 | `dictionary.txt` | Definiciones de las columnas que usamos. |
 | `CLAUDE.md` | Instrucciones para el asistente de IA de cada quien (reglas de datos, cómo trabajar con el equipo). |
 | `docs/guia_proyecto.md` | Guía del proyecto: qué construimos, cómo funciona cada pieza y los **contratos entre módulos** (nombres de funciones, archivos y columnas). |
+| `docs/fisica_altitud.md` | Física de la altitud: densidad del aire vs. altitud, Magnus, arrastre y reescalado del movimiento, con sus supuestos. |
+| `requirements.txt` | Librerías de Python del proyecto. |
 | `docs/decisions.md` | **Fuente de verdad del proyecto:** roles, arquitectura (Stuff+, Location+, Pitching+), el pipeline paso a paso y la bitácora de decisiones. Si una decisión cambia, se cambia ahí con fecha y motivo. |
 
 ## Modelo de resultados (5 clases)
@@ -100,11 +140,11 @@ Cada lanzamiento termina en uno de 5 resultados, definidos en `objetivo.py` a pa
 
 | Clase | Significado | % de los datos |
 |---|---|---|
-| `ball` (0) | sin swing, bola (incluye pelotazo) | 37.8 % |
-| `called_strike` (1) | sin swing, strike | 15.4 % |
-| `whiff` (2) | swing y falló | 11.3 % |
+| `ball` (0) | sin swing, bola (incluye pelotazo) | 37.9 % |
+| `called_strike` (1) | sin swing, strike | 15.5 % |
+| `whiff` (2) | swing y falló | 11.4 % |
 | `foul` (3) | swing y foul | 17.2 % |
-| `in_play` (4) | swing y bola en juego | 18.3 % |
+| `in_play` (4) | swing y bola en juego | 18.0 % |
 
 `modelo_multiclase.py` predice las 5 probabilidades de cada lanzamiento (suman 1). Más adelante se combinan con el valor en carreras de cada resultado para obtener el xRV y, de ahí, el Stuff+ (ver `docs/decisions.md`, pasos 5–8).
 
@@ -113,7 +153,26 @@ Cada lanzamiento termina en uno de 5 resultados, definidos en `objetivo.py` a pa
 - Calibración: la probabilidad predicha y la frecuencia real difieren menos de 1 punto en casi todos los conteos (3-0: 2.2 puntos, con pocos pitches).
 - Features: física (`RelSpeed`, `SpinRate`, `InducedVertBreak`, `HorzBreak`, `Extension`, `RelHeight`, `RelSide`, `SpinAxis`) + conteo (`Balls`, `Strikes`). `VertRelAngle` se descartó porque codifica la ubicación.
 
-**Stuff+ neutral al conteo:** `predecir_12_conteos.py` evalúa cada pitch en los 12 conteos. El paso siguiente (`scoring.py`, pendiente) multiplica esas probabilidades por los precios de `run_values.py` y promedia los 12 conteos con `pesos_conteo.csv`.
+**Stuff+ neutral al conteo:** `predecir_12_conteos.py` evalúa cada pitch en los 12 conteos y `scoring.py` multiplica esas probabilidades por los precios de `run_values.py` y promedia los 12 conteos con `pesos_conteo.csv`. Así, un slider no sale mejor solo porque se usa más en 0-2. Resultado v1 (sin altitud): a nivel pitcher, Stuff+ vs tasa de whiff r = 0.43; arriba quedan rectas de 92–97 mph y rompientes de spin alto (Stuff+ 117–124), abajo sinkers de poco spin (81–84).
+
+## Location+ (`zona.py`, `modelo_location.py`, `scoring_location.py`)
+Mide **la ubicación**, no la física. El modelo ve dónde cruzó la bola (`PlateLocHeight`, `lado_relativo`), el conteo, la mano del bateador (`bateador_zurdo`, `misma_mano`) y el tipo de pitch, y predice las mismas 5 probabilidades.
+
+```
+xRV         = Σ  P(resultado | ubicación, conteo real, ...)  ×  RV(resultado, conteo real)
+Location+   = 100 + 10 · z( −(xRV − xRV promedio de ese conteo) )      por temporada
+```
+
+- **Por qué el conteo real:** dónde conviene tirar depende del conteo (en 3-0 hay que meterla, en 0-2 conviene que persiga afuera).
+- **Por qué restar el promedio del conteo:** estar en 0-2 ya es ventaja del pitcher; eso no es mérito de la ubicación.
+- **Lado relativo:** `PlateLocSide` se mide desde el catcher; se le cambia el signo para los bateadores zurdos para que **+ siempre sea adentro**. Comprobado con los pelotazos: quedan en +2.0 ft para los dos lados.
+- **Mismos folds que Stuff+:** se leen de `folds.csv`, así cada pitch se predice en los dos modelos sin que ninguno haya visto a su pitcher, y sus scores se pueden comparar.
+
+**Resultados actuales** (entrenamiento 2024–2025, validación cruzada por pitcher, `min_child_samples = 2000`):
+- Mejora sobre el baseline por conteo: **29.2 %** (Stuff+: 1.0 %). Lo más fuerte es ball (52.7 %) y called_strike (24.3 %): la ubicación explica bola/strike y la física explica el whiff.
+- Calibración: menos de 1 punto de diferencia en todos los conteos y menos de 0.3 en todas las zonas.
+- En 3-0, dentro de la zona ≈ 114 y fuera 89; en 0-2, el centro de la zona es lo peor (97) y las esquinas bajas lo mejor (101–102).
+- A nivel pitcher: Location+ vs tasa de bolas r = −0.74; Location+ vs Stuff+ r = 0.04 (miden cosas distintas). Estabilidad de 2024 a 2025: Location+ r = 0.62, Stuff+ r = 0.78.
 
 ## Valores de carrera (`run_values.py`)
 Una **lista de precios**: cuántas carreras vale cada uno de los 5 resultados según el conteo (12 conteos × 5 resultados = 60 precios). Positivo = bueno para el bateador.
@@ -152,5 +211,5 @@ Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimo
 - Cada quien trabaja en su propia rama: `nombre/tema`.
 - Nunca hacer push directo a `main`: usar un pull request.
 - Hacer `git pull` antes de empezar a trabajar.
-- Nunca subir archivos de datos (`.parquet`, `.csv`).
+- Nunca subir archivos de datos (`.parquet`, `.csv`). El `.gitignore` los bloquea (salvo `config/*.csv`), igual que `modelos/`, `salidas/` y `graphify-out/`; aun así, revisar `git status` antes de cada commit.
   

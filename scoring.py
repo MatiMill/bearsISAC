@@ -12,7 +12,8 @@ Convención: xRV positivo = bueno para el bateador; Stuff+ alto = mejor pitcher.
 
 Esta v1 usa las predicciones out-of-fold del entrenamiento (2024+2025), así que
 el Stuff+ es honesto (cada pitch lo predijo un modelo que no vio a su pitcher).
-Solo hace el contexto neutral (Stuff+); el `in_play` usa el RV_k v0 (lo afinará
+El `main` hace el contexto neutral (Stuff+); el contexto real (Location+) lo usa
+scoring_location.py. El `in_play` usa el RV_k v0 (lo afinará
 el modelo de contacto, paso 7).
 
 Uso:
@@ -45,14 +46,24 @@ def cargar_rv():
     return rv_wide, pesos
 
 
-def calcular_xrv(df12, contexto="neutral"):
-    """xRV por pitch a partir de las predicciones en los 12 conteos.
+def calcular_xrv(df12, contexto="neutral", promedio_conteo=None):
+    """xRV por pitch.
 
-    contexto='neutral' (Stuff+): promedia los 12 conteos con los pesos de la liga.
-    El contexto 'real' (Location+/Pitching+) usa el conteo real; no está en esta v1.
+    contexto='neutral' (Stuff+): df12 trae las predicciones en los 12 conteos; se
+    promedian con los pesos de la liga. Devuelve PitchUID, pitcher_anon_id, xrv_stuff.
+
+    contexto='real' (Location+/Pitching+): df12 trae UNA fila por pitch, con las
+    probabilidades en su conteo real. xRV = sum_k P(k) * RV_k(conteo real), y se le
+    resta el xRV promedio de ese conteo (lo que vale estar en ese conteo no es mérito
+    del pitch). Devuelve PitchUID, pitcher_anon_id, Balls, Strikes, xrv, xrv_conteo
+    (el promedio restado) y xrv_vs_conteo = xrv - xrv_conteo.
+    `promedio_conteo`: tabla Balls, Strikes, xrv_conteo. Por defecto se calcula con df12
+    (la liga); para pitches nuevos (dashboard) se pasa la de la liga.
     """
+    if contexto == "real":
+        return _xrv_real(df12, promedio_conteo)
     if contexto != "neutral":
-        raise NotImplementedError("scoring.py v1 solo hace el contexto neutral (Stuff+).")
+        raise ValueError(f"contexto desconocido: {contexto!r} (usar 'neutral' o 'real')")
     rv_wide, pesos = cargar_rv()
     df = df12.copy()
     df["Balls"] = df["Balls"].astype(int)
@@ -64,6 +75,24 @@ def calcular_xrv(df12, contexto="neutral"):
     return (df.groupby("PitchUID", sort=False)
             .agg(pitcher_anon_id=("pitcher_anon_id", "first"), xrv_stuff=("xrv_pond", "sum"))
             .reset_index())
+
+
+def _xrv_real(df, promedio_conteo=None):
+    """Contexto 'real' de calcular_xrv: xRV en el conteo real, menos el promedio del conteo."""
+    rv_wide, _pesos = cargar_rv()
+    df = df[["PitchUID", "pitcher_anon_id", "Balls", "Strikes"] + COLS_PROB].copy()
+    df["Balls"] = df["Balls"].astype(int)
+    df["Strikes"] = df["Strikes"].astype(int)
+    df = df.merge(rv_wide, on=["Balls", "Strikes"], how="left", validate="many_to_one")
+    assert df[COLS_RV].notna().all().all(), "hay conteos sin precio RV_k"
+    df["xrv"] = (df[COLS_PROB].to_numpy() * df[COLS_RV].to_numpy()).sum(axis=1)
+
+    if promedio_conteo is None:
+        promedio_conteo = df.groupby(["Balls", "Strikes"], as_index=False).agg(xrv_conteo=("xrv", "mean"))
+    df = df.merge(promedio_conteo, on=["Balls", "Strikes"], how="left", validate="many_to_one")
+    assert df["xrv_conteo"].notna().all(), "hay conteos sin promedio"
+    df["xrv_vs_conteo"] = df["xrv"] - df["xrv_conteo"]
+    return df[["PitchUID", "pitcher_anon_id", "Balls", "Strikes", "xrv", "xrv_conteo", "xrv_vs_conteo"]]
 
 
 def a_escala_plus(s, year):

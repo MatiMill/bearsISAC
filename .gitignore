@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# graphify (grafo de conocimiento local; no se sube)
+graphify-out/
+.graphify/
+
+# Datos del ISAC: nunca se suben (ver CLAUDE.md)
+*.parquet
+*.csv
+!config/*.csv
+models/
+modelos/
+salidas/
