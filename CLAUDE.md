@@ -32,13 +32,15 @@ Modelo Stuff+ / Location+ / Pitching+ para la Liga Mexicana de Béisbol, calibra
 ## Archivos
 | Archivo | Qué hace |
 |---|---|
-| `limpieza.py` | Carga y limpia los datos; voltea zurdos |
+| `limpieza.py` | Paso 1: carga y limpia los datos; voltea zurdos (`HorzBreak`, `RelSide`, ángulos horizontales, `SpinAxis`); tabla de filas quitadas por filtro |
 | `objetivo.py` | Paso 2: target de 5 clases (ball, called_strike, whiff, foul, in_play) |
-| `modelo_multiclase.py` | Paso 6: LightGBM multiclase con GroupKFold por pitcher |
-| `modelo.py` | Versión inicial: P(whiff | swing). Solo referencia |
+| `particion.py` | Paso 4: `separar_test(df)`; test sellado = última temporada |
+| `run_values.py` | Paso 5: precios RV_k(balls, strikes) con RE(outs, corredores) (Matías) |
+| `modelo_multiclase.py` | Paso 6: LightGBM multiclase, física + `SpinAxis` + conteo, GroupKFold por pitcher |
+| `busqueda_min_child.py` | Paso 6: elección de `min_child_samples` por CV pareada (resultado: 1000) |
+| `predecir_12_conteos.py` | Paso 8 (insumo): probabilidades de cada pitch en los 12 conteos, out-of-fold |
 | `estadios.py` | Reconstruye equipos/estadios y densidad del aire por juego (Matías) |
 | `altitud.py` | Calibra densidad medida vs. altitud real por estadio (Matías) |
-| `explorar_columnas.py` | Inventario de columnas del dataset |
 | `docs/guia_proyecto.md` | Qué construimos, cómo funciona y contratos entre módulos |
 | `docs/decisions.md` | Decisiones, resultados verificados y bitácora |
 

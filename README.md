@@ -22,20 +22,28 @@ DIABLOS/
 ├── salidas/
 │   ├── predicciones_oof.parquet      ← lo genera modelo_multiclase.py
 │   ├── validacion_multiclase.csv     ← lo genera modelo_multiclase.py
+│   ├── folds.csv                     ← lo genera modelo_multiclase.py
+│   ├── predicciones_12conteos.parquet← lo genera predecir_12_conteos.py
 │   ├── rv_tabla.csv                  ← lo genera run_values.py
 │   ├── valores_evento.csv            ← lo genera run_values.py
 │   └── pesos_conteo.csv              ← lo genera run_values.py
 ├── modelos/                          ← lo genera modelo_multiclase.py
-│   └── modelo_resultado.txt
+│   ├── modelo_resultado.txt          ← modelo final
+│   └── modelo_resultado_fold1..5.txt ← un modelo por fold
 └── bearsISAC/                        ← este repo
+    ├── CLAUDE.md
     ├── limpieza.py
     ├── objetivo.py
+    ├── particion.py
     ├── modelo_multiclase.py
+    ├── busqueda_min_child.py
+    ├── predecir_12_conteos.py
     ├── run_values.py
     ├── estadios.py
     ├── altitud.py
     ├── dictionary.txt
     └── docs/
+        ├── guia_proyecto.md
         └── decisions.md
 ```
 
@@ -57,10 +65,14 @@ source ~/venvs/bears/bin/activate
 ## Uso
 Desde la carpeta del repo, con el entorno activado:
 ```bash
-python limpieza.py            # limpia los datos e imprime la tabla de filas quitadas
-python objetivo.py            # revisa el target de 5 resultados contra los datos
-python modelo_multiclase.py   # modelo principal: probabilidad de cada resultado
-python run_values.py          # precio en carreras de cada resultado según el conteo
+python limpieza.py              # limpia los datos e imprime la tabla de filas quitadas
+python objetivo.py              # revisa el target de 5 resultados contra los datos
+python particion.py             # muestra el split entrenamiento / test sellado
+python modelo_multiclase.py     # modelo principal: probabilidad de cada resultado
+python predecir_12_conteos.py   # predice cada pitch en los 12 conteos (necesita modelo_multiclase.py antes)
+python run_values.py            # precio en carreras de cada resultado según el conteo
+
+python busqueda_min_child.py    # (lento, opcional) elige min_child_samples por validación cruzada
 
 python estadios.py    # 1) estadio y densidad del aire de cada juego
 python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
@@ -71,11 +83,16 @@ python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
 |---|---|
 | `limpieza.py` | Carga los datos y los limpia: quita pitches no competitivos, bunts, filas vacías y valores imposibles; voltea `HorzBreak`, `RelSide`, `HorzRelAngle`, `HorzApprAngle` y `SpinAxis` de los zurdos. Al correrlo imprime cuántas filas quita cada filtro y guarda `pitches_clean.parquet`. |
 | `objetivo.py` | Define el target: traduce `PitchCall` a 5 resultados (`ball`, `called_strike`, `whiff`, `foul`, `in_play`). Al correrlo, revisa las proporciones y que coincida con `is_whiff` e `is_swing` del ISAC. |
-| `modelo_multiclase.py` | Modelo principal. LightGBM multiclase que predice la probabilidad de cada uno de los 5 resultados usando solo la física del pitch. Validación cruzada de 5 partes por pitcher, comparación contra un baseline y revisión de calibración. Guarda las predicciones fuera de muestra en `../salidas/` y el modelo final en `../modelos/`. |
+| `particion.py` | Separa el **test sellado**: la última temporada (2026) no se usa para entrenar ni para elegir nada, solo para la validación final. `separar_test(df)` devuelve `(entrenamiento, test)`. |
+| `modelo_multiclase.py` | Modelo principal. LightGBM multiclase que predice la probabilidad de cada uno de los 5 resultados con la física del pitch (+ `SpinAxis`) y el conteo (`Balls`, `Strikes`). Usa solo el entrenamiento. Validación cruzada de 5 partes por pitcher contra un baseline por conteo, y calibración general y por conteo. Guarda las predicciones fuera de muestra y `folds.csv` en `../salidas/`, y los 5 modelos de fold más el final en `../modelos/`. |
+| `busqueda_min_child.py` | Prueba `min_child_samples` ∈ {20 … 2000} con la misma validación cruzada y elige con comparación pareada fold a fold. Resultado: 1000. Tarda bastante (35 entrenamientos). |
+| `predecir_12_conteos.py` | Para cada pitch, deja fija la física y predice las 5 probabilidades en los **12 conteos**, con el modelo del fold que no vio a su pitcher. Es el insumo para el Stuff+ neutral al conteo. Guarda `predicciones_12conteos.parquet`. |
 | `run_values.py` | Calcula el precio en carreras de cada resultado según el conteo (`RV_k`), con datos sin limpiar de las temporadas de entrenamiento. Guarda `rv_tabla.csv`, `valores_evento.csv` y `pesos_conteo.csv` en `../salidas/`. |
 | `estadios.py` | Reconstruye en qué estadio se jugó cada juego (los datos no lo dicen), mide la densidad del aire con el frenado de las rectas e identifica los juegos en el Harp Helú. Genera `estadios.parquet`. |
 | `altitud.py` | Calibra la densidad medida con las altitudes reales de los 20 estadios de la LMB y estima la altitud de cada uno. Genera `altitudes.parquet`. |
 | `dictionary.txt` | Definiciones de las columnas que usamos. |
+| `CLAUDE.md` | Instrucciones para el asistente de IA de cada quien (reglas de datos, cómo trabajar con el equipo). |
+| `docs/guia_proyecto.md` | Guía del proyecto: qué construimos, cómo funciona cada pieza y los **contratos entre módulos** (nombres de funciones, archivos y columnas). |
 | `docs/decisions.md` | **Fuente de verdad del proyecto:** roles, arquitectura (Stuff+, Location+, Pitching+), el pipeline paso a paso y la bitácora de decisiones. Si una decisión cambia, se cambia ahí con fecha y motivo. |
 
 ## Modelo de resultados (5 clases)
@@ -90,6 +107,13 @@ Cada lanzamiento termina en uno de 5 resultados, definidos en `objetivo.py` a pa
 | `in_play` (4) | swing y bola en juego | 18.3 % |
 
 `modelo_multiclase.py` predice las 5 probabilidades de cada lanzamiento (suman 1). Más adelante se combinan con el valor en carreras de cada resultado para obtener el xRV y, de ahí, el Stuff+ (ver `docs/decisions.md`, pasos 5–8).
+
+**Resultados actuales** (entrenamiento 2024–2025, validación cruzada por pitcher):
+- Mejora sobre el baseline por conteo: **1.00 %** (0.82–1.17 % en los 5 folds). Es poco y es normal: si un pitch termina en bola o strike depende sobre todo de la ubicación, que Stuff+ no ve a propósito. La mejora más grande es en whiff (2.3 %).
+- Calibración: la probabilidad predicha y la frecuencia real difieren menos de 1 punto en casi todos los conteos (3-0: 2.2 puntos, con pocos pitches).
+- Features: física (`RelSpeed`, `SpinRate`, `InducedVertBreak`, `HorzBreak`, `Extension`, `RelHeight`, `RelSide`, `SpinAxis`) + conteo (`Balls`, `Strikes`). `VertRelAngle` se descartó porque codifica la ubicación.
+
+**Stuff+ neutral al conteo:** `predecir_12_conteos.py` evalúa cada pitch en los 12 conteos. El paso siguiente (`scoring.py`, pendiente) multiplica esas probabilidades por los precios de `run_values.py` y promedia los 12 conteos con `pesos_conteo.csv`.
 
 ## Valores de carrera (`run_values.py`)
 Una **lista de precios**: cuántas carreras vale cada uno de los 5 resultados según el conteo (12 conteos × 5 resultados = 60 precios). Positivo = bueno para el bateador.
