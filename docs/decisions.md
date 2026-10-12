@@ -253,6 +253,18 @@ Pregunta: **¿la puso donde debía?** Mismo método que Stuff+ (LightGBM multicl
 - Salidas (contrato §6 de la guía): `../salidas/predicciones_oof_location.parquet`, `validacion_location.csv`, `scores_location_pitch.parquet`, `scores_location_pitcher_tipo.csv`, `scores_location_pitcher.csv`, `xrv_promedio_conteo_location.csv`; `../modelos/modelo_location_fold{1..5}.txt` + `modelo_location.txt`.
 - Pendiente: `in_play` con RV_k de contacto (paso 7); validación en el test sellado (paso 9); scores finales tras reentrenar con todo; altitud opcional.
 
+#### Pitching+ (`pitching_plus.py`, Ricardo — verificado 2026-10-12)
+
+Ve **todo**: física + conteo + ubicación + lado del bateador (sin altitud por ahora). Mismo motor que Stuff+/Location+ (`validacion_cruzada` con `features=` y los folds de `folds.csv`).
+
+**Modelo (`pitching_plus.py`).**
+- Features: 8 físicas (incl. `SpinAxis`) + `Balls`, `Strikes` + `PlateLocHeight`, `lado_relativo` + `bateador_zurdo`, `misma_mano`. **Sin `tipo_pitch`** (la física ya codifica la forma del pitch, coherente con Stuff+) ni altitud. `FEATURES_PITCHING` es una lista para añadir `densidad_juego` en v2. `min_child_samples = 1000` (igual que Stuff+).
+- Misma partición que Stuff+/Location+ (`folds.csv`), comprobada con un `assert`. Corre sobre 494,671 pitches (descarta los sin lado de bateador conocido, como Location+).
+- **Verificado (entrenamiento 2024+2025):** mejora sobre el baseline por conteo **30.3 %** (Stuff+ 1.0 %, Location+ 29.2 %) — casi todo es la **ubicación**. Por clase (log-loss binaria): **ball 53.6 %** (Stuff+ 0.02 %), called_strike 25.3 %, in_play 18.6 %, foul 12.9 %, whiff 11.3 %. Calibración general ≤ 0.04 pp; por conteo máx 1.13 pp (3-0).
+- Interpretación: Pitching+ predice el resultado mucho mejor porque **sabe dónde terminó el pitch**; no es "mejor" que Stuff+, responde otra pregunta (ejecución total vs. calidad intrínseca de la bola). El salto 1 % → 30 % es la ubicación, justo lo que Stuff+ excluye a propósito.
+- Salidas: `../salidas/predicciones_oof_pitching.parquet` (mismas columnas que el OOF de Stuff+), `validacion_pitching.csv`; `../modelos/modelo_pitching_fold{1..5}.txt` + `modelo_pitching.txt`.
+- Score: pendiente (`scoring_pitching.py`, contexto `"real"`, igual que Location+).
+
 ### Paso 9 · Validación final
 
 - Sobre el test sellado: log-loss/RMSE vs. baseline "xRV promedio por conteo"; curvas de calibración.
@@ -291,8 +303,8 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 
 ## 6. Estado (2026-10-06)
 
-- **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `scoring.py` v1 (Stuff+ neutral + contexto real), **Location+ completo** (`zona.py`, `modelo_location.py`, `busqueda_min_child_location.py`, `scoring_location.py`), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
-- **Pendiente inmediato:** `contacto.py` (Paso 7, Matías); Pitching+ (Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
+- **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `scoring.py` v1 (Stuff+ neutral + contexto real), **Location+ completo** (`zona.py`, `modelo_location.py`, `busqueda_min_child_location.py`, `scoring_location.py`), **Pitching+ modelo** (`pitching_plus.py`), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
+- **Pendiente inmediato:** `scoring_pitching.py` (score de Pitching+); `contacto.py` (Paso 7, Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
 
 ## 7. Bitácora de cambios
 
@@ -316,3 +328,4 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 - **2026-10-06:** **Location+ completo** (Matías). `zona.py` (`lado_relativo` + = adentro, verificado con pelotazos; zonas 1–9 + fuera, 99.999 % igual a `in_strike_zone`); `modelo_location.py` (ubicación + conteo + mano + tipo de pitch, mismos folds que Stuff+ vía `folds.csv`: con GroupKFold propio el 59 % de los pitches cambiaba de fold); `min_child_samples = 2000` por la regla pareada (1000 menor log-loss pero 2000 indistinguible, 3/5; 5000 pierde 5/5). Mejora sobre el baseline por conteo 29.18 % (ball 52.7 %, called_strike 24.3 %), calibración ≤ 1 pp por conteo. Score: `calcular_xrv(df, "real")` en `scoring.py` (xRV en el conteo real − promedio del conteo; `"neutral"` intacto, reproduce Stuff+ exacto) + `scoring_location.py`. Sanity: 3-0 dentro de la zona ≈ 114 vs fuera 89; 0-2 centro de la zona 97 y esquinas 101–102; Location+ vs tasa de bolas r = −0.74; vs Stuff+ r = 0.04; estabilidad 2024 → 2025 r = 0.62 (Stuff+ 0.78). Cambios en módulos existentes: `validacion_cruzada(..., features=None, fold_de_pitcher=None)` en `modelo_multiclase.py` y el contexto `"real"` en `scoring.py`, ambos opcionales y sin cambiar el comportamiento previo.
 - **2026-10-06:** `.gitignore` corregido: no bloqueaba `*.parquet`/`*.csv` aunque §5 decía que sí (ningún dato estaba subido). Agregados `*.parquet`, `*.csv` (salvo `config/*.csv`), `models/`, `modelos/`, `salidas/`, `graphify-out/`, `.graphify/`. Guía §6: fila de `limpieza.py` al día (decía pendientes ya hechos) y convención de reusar `folds.csv`.
 - **2026-10-06:** README al día (Location+, `scoring.py` ya hecho, árbol de salidas, porcentajes de clases de la re-corrida, instalación con `requirements.txt` también en Windows). Nuevo `requirements.txt` (pandas, numpy, pyarrow, lightgbm, scikit-learn, scipy; se quitó `pybaseball`, que ningún script usa): §5 ya lo daba por existente.
+- **2026-10-12:** **Pitching+ modelo** (`pitching_plus.py`, Ricardo). Ve todo (8 físicas + conteo + `PlateLocHeight`/`lado_relativo` + `bateador_zurdo`/`misma_mano`), sin `tipo_pitch` ni altitud, `min_child_samples = 1000`, mismos folds que Stuff+/Location+ (`folds.csv`, `assert`). Mejora sobre el baseline por conteo **30.3 %** (Stuff+ 1.0 %, Location+ 29.2 %): casi todo es la ubicación (ball 53.6 % vs 0.02 % en Stuff+). Calibración general ≤ 0.04 pp, por conteo máx 1.13 pp (3-0). OOF con las mismas columnas que Stuff+. Nota de reparto: Pitching+ figura como de Matías en §8; lo construyó Ricardo en esta sesión — coordinar para no duplicar. Falta el score (`scoring_pitching.py`).
