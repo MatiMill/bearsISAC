@@ -6,7 +6,7 @@ Tres calificaciones por lanzamiento para la LMB, calibradas por altitud (Diablos
 
 - **Stuff+**: ¿qué tan buena es la bola? Solo física (velocidad, spin, movimiento, punto de salida).
 - **Location+**: ¿la puso donde debía? Solo ubicación, dado el conteo, el bateador y el tipo de pitch.
-- **Pitching+**: ¿qué tan bueno fue el lanzamiento completo? Todo junto (pendiente).
+- **Pitching+**: ¿qué tan bueno fue el lanzamiento completo? Todo junto: física, ubicación, conteo y lado del bateador.
 
 En las tres, 100 = promedio de la liga y 110 = una desviación estándar mejor que el promedio.
 
@@ -38,12 +38,19 @@ DIABLOS/
 │   ├── validacion_location.csv       ← lo genera modelo_location.py
 │   ├── scores_location_pitch.parquet ← Location+ por pitch (scoring_location.py)
 │   ├── scores_location_pitcher_tipo.csv / scores_location_pitcher.csv
-│   └── xrv_promedio_conteo_location.csv ← promedio que se resta en cada conteo
+│   ├── xrv_promedio_conteo_location.csv ← promedio que se resta en cada conteo
+│   ├── predicciones_oof_pitching.parquet ← lo genera pitching_plus.py
+│   ├── validacion_pitching.csv       ← lo genera pitching_plus.py
+│   ├── scores_pitching_pitch.parquet ← Pitching+ por pitch (scoring_pitching.py)
+│   ├── scores_pitching_pitcher_tipo.csv / scores_pitching_pitcher.csv
+│   └── xrv_promedio_conteo_pitching.csv ← promedio que se resta en cada conteo
 ├── modelos/
 │   ├── modelo_resultado.txt          ← Stuff+: modelo final (modelo_multiclase.py)
 │   ├── modelo_resultado_fold1..5.txt ← Stuff+: un modelo por fold
 │   ├── modelo_location.txt           ← Location+: modelo final (modelo_location.py)
-│   └── modelo_location_fold1..5.txt  ← Location+: un modelo por fold
+│   ├── modelo_location_fold1..5.txt  ← Location+: un modelo por fold
+│   ├── modelo_pitching.txt           ← Pitching+: modelo final (pitching_plus.py)
+│   └── modelo_pitching_fold1..5.txt  ← Pitching+: un modelo por fold
 └── bearsISAC/                        ← este repo
     ├── CLAUDE.md
     ├── requirements.txt
@@ -59,9 +66,10 @@ DIABLOS/
     ├── modelo_location.py
     ├── busqueda_min_child_location.py
     ├── scoring_location.py
+    ├── pitching_plus.py
+    ├── scoring_pitching.py
     ├── estadios.py
     ├── altitud.py
-    ├── dictionary.txt
     └── docs/
         ├── guia_proyecto.md
         ├── decisions.md
@@ -103,6 +111,11 @@ python zona.py                  # revisiones de la zona de strike y del lado del
 python modelo_location.py       # modelo de ubicación: probabilidad de cada resultado
 python scoring_location.py      # Location+ (necesita modelo_location.py)
 
+# Pitching+ (necesita folds.csv, rv_tabla.csv, y scores_pitch.parquet y scores_location_pitch.parquet
+# para la revisión de correlaciones: corre antes scoring.py y scoring_location.py)
+python pitching_plus.py         # modelo que ve todo: física + ubicación + conteo + lado del bateador
+python scoring_pitching.py      # Pitching+ (necesita pitching_plus.py)
+
 # (lentos, opcionales) eligen min_child_samples por validación cruzada
 python busqueda_min_child.py            # Stuff+    (resultado: 1000)
 python busqueda_min_child_location.py   # Location+ (resultado: 2000)
@@ -125,10 +138,11 @@ python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
 | `modelo_location.py` | Modelo de Location+: LightGBM multiclase con ubicación, conteo, mano del bateador y tipo de pitch (sin física). Usa **los mismos folds** que Stuff+ (`folds.csv`). Guarda predicciones fuera de muestra y modelos. |
 | `busqueda_min_child_location.py` | Igual que `busqueda_min_child.py`, para Location+. Resultado: 2000. |
 | `scoring_location.py` | Location+ por pitch, pitcher × tipo y pitcher, más 5 revisiones (zona por conteo, tasa de bolas, correlación con Stuff+, estabilidad entre temporadas). |
+| `pitching_plus.py` | Modelo de Pitching+: LightGBM multiclase con **todo**: las 8 columnas de física de Stuff+, la ubicación de Location+, conteo y lado del bateador (sin `tipo_pitch` ni altitud). Usa **los mismos folds** que Stuff+ y Location+ (`folds.csv`). Guarda predicciones fuera de muestra y modelos. |
+| `scoring_pitching.py` | Pitching+ por pitch, pitcher × tipo y pitcher (`calcular_xrv(df, "real")` y escala 100 + 10z), más 5 revisiones, incluida la correlación con Stuff+ y Location+. |
 | `run_values.py` | Calcula el precio en carreras de cada resultado según el conteo (`RV_k`), con datos sin limpiar de las temporadas de entrenamiento. Guarda `rv_tabla.csv`, `valores_evento.csv` y `pesos_conteo.csv` en `../salidas/`. |
 | `estadios.py` | Reconstruye en qué estadio se jugó cada juego (los datos no lo dicen), mide la densidad del aire con el frenado de las rectas e identifica los juegos en el Harp Helú. Genera `estadios.parquet`. |
 | `altitud.py` | Calibra la densidad medida con las altitudes reales de los 20 estadios de la LMB y estima la altitud de cada uno. Genera `altitudes.parquet`. |
-| `dictionary.txt` | Definiciones de las columnas que usamos. |
 | `CLAUDE.md` | Instrucciones para el asistente de IA de cada quien (reglas de datos, cómo trabajar con el equipo). |
 | `docs/guia_proyecto.md` | Guía del proyecto: qué construimos, cómo funciona cada pieza y los **contratos entre módulos** (nombres de funciones, archivos y columnas). |
 | `docs/fisica_altitud.md` | Física de la altitud: densidad del aire vs. altitud, Magnus, arrastre y reescalado del movimiento, con sus supuestos. |
@@ -173,6 +187,31 @@ Location+   = 100 + 10 · z( −(xRV − xRV promedio de ese conteo) )      por 
 - Calibración: menos de 1 punto de diferencia en todos los conteos y menos de 0.3 en todas las zonas.
 - En 3-0, dentro de la zona ≈ 114 y fuera 89; en 0-2, el centro de la zona es lo peor (97) y las esquinas bajas lo mejor (101–102).
 - A nivel pitcher: Location+ vs tasa de bolas r = −0.74; Location+ vs Stuff+ r = 0.04 (miden cosas distintas). Estabilidad de 2024 a 2025: Location+ r = 0.62, Stuff+ r = 0.78.
+
+## Pitching+ (`pitching_plus.py`, `scoring_pitching.py`)
+Mide **el lanzamiento completo**. Es un **tercer modelo entrenado desde cero**, no un promedio de Stuff+ y Location+: el valor de la ubicación depende del pitch (una recta con mucho IVB arriba de la zona es buena; un sinker arriba es malo), y un promedio no puede capturar esa interacción. Además, las escalas de los dos no se pueden sumar. El modelo ve las dos cosas a la vez y descubre esas interacciones solo.
+
+```
+Features   = física (8, como Stuff+) + PlateLocHeight, lado_relativo (como Location+)
+             + Balls, Strikes + bateador_zurdo, misma_mano      (sin tipo_pitch, sin altitud todavía)
+Pitching+  = 100 + 10 · z( −(xRV − xRV promedio de ese conteo) )      por temporada, conteo real
+```
+
+- **Sin `tipo_pitch`:** la física ya codifica la forma del pitch, igual que en Stuff+.
+- **Misma partición que Stuff+ y Location+** (`folds.csv`): cada pitch se predice en los tres modelos sin que ninguno haya visto a su pitcher, así los scores son comparables pitch a pitch.
+- **Altitud:** `FEATURES_PITCHING` es una lista pensada para agregar `densidad_juego` en una v2.
+
+**Resultados actuales** (entrenamiento 2024–2025, validación cruzada por pitcher, `min_child_samples = 1000`; corridos por Ricardo, ver `docs/decisions.md`):
+- Mejora sobre el baseline por conteo: **30.3 %** (Stuff+: 1.0 %, Location+: 29.2 %). Casi todo viene de la ubicación: ball 53.6 % (en Stuff+ es 0.02 %). Calibración general ≤ 0.04 puntos; por conteo, máximo 1.13 (en 3-0).
+- Pitching+ es la ejecución total, **dominada por la ubicación**: correlaciona con Location+ (r = 0.87) y menos con Stuff+ (r = 0.42), mientras que Stuff+ y Location+ casi no se relacionan entre sí (r = 0.04).
+- A nivel pitcher: Pitching+ vs tasa de bolas r = −0.73 y vs tasa de whiff r = +0.27: combina los dos canales. Estabilidad de 2024 a 2025: r = 0.60 (Stuff+: 0.78, Location+: 0.62).
+- No es "mejor" que Stuff+: responde otra pregunta. Stuff+ mide la calidad intrínseca de la bola; Pitching+, qué tan bien salió ese lanzamiento.
+
+| Score | Pregunta | Ve | Mejora sobre baseline | Estabilidad 2024→2025 |
+|---|---|---|---|---|
+| Stuff+ | ¿Qué tan buena es la bola? | física + conteo | 1.0 % | 0.78 |
+| Location+ | ¿La puso donde debía? | ubicación + conteo + lado + tipo de pitch | 29.2 % | 0.62 |
+| Pitching+ | ¿Qué tan bueno fue el lanzamiento? | todo | 30.3 % | 0.60 |
 
 ## Valores de carrera (`run_values.py`)
 Una **lista de precios**: cuántas carreras vale cada uno de los 5 resultados según el conteo (12 conteos × 5 resultados = 60 precios). Positivo = bueno para el bateador.

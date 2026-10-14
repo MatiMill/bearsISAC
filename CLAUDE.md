@@ -44,6 +44,8 @@ Modelo Stuff+ / Location+ / Pitching+ para la Liga Mexicana de Béisbol, calibra
 | `modelo_location.py` | Location+: LightGBM multiclase con ubicación + conteo + mano + tipo de pitch, mismos folds que Stuff+ (Matías) |
 | `busqueda_min_child_location.py` | Location+: `min_child_samples` por CV pareada (resultado: 2000) (Matías) |
 | `scoring_location.py` | Location+: xRV en el conteo real − promedio del conteo → escala 100 + 10z (Matías) |
+| `pitching_plus.py` | Pitching+: LightGBM multiclase con física + ubicación + conteo + lado del bateador, mismos folds que Stuff+ (Ricardo) |
+| `scoring_pitching.py` | Pitching+: xRV en el conteo real − promedio del conteo → escala 100 + 10z (Ricardo) |
 | `estadios.py` | Reconstruye equipos/estadios y densidad del aire por juego (Matías) |
 | `altitud.py` | Calibra densidad medida vs. altitud real por estadio (Matías) |
 | `requirements.txt` | Dependencias (`pip install -r requirements.txt`) |
