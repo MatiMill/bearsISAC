@@ -287,10 +287,95 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 ### Paso 10 · Altitud
 
 - La altitud actúa por dos canales: (1) menos movimiento (ya viene en IVB/HB medidos); (2) contacto más caro (lo aprende el modelo vía `altitude_category`).
-- Delta de altitud = mismo pitch evaluado en "alta" vs "baja", cambiando la categoría y ajustando el movimiento: IVB_bajo ≈ IVB_alto · ρ_bajo/ρ_alto (idem HB). Factor a validar empíricamente con los mismos pitchers en distintas categorías (efecto fijo por pitcher).
+- (**Superado el 2026-10-14:** el ajuste usa el efecto medido por tipo, aditivo, no la proporción ρ; ver "Implementación de la altitud" abajo.) Delta de altitud = mismo pitch evaluado en "alta" vs "baja", cambiando la categoría y ajustando el movimiento: IVB_bajo ≈ IVB_alto · ρ_bajo/ρ_alto (idem HB). Factor a validar empíricamente con los mismos pitchers en distintas categorías (efecto fijo por pitcher).
 - Densidad vs. altitud (atmósfera estándar, la que usa `altitud.py`): ρ/ρ₀ = (1 − 2.25577e−5·h)^4.25588. A 2,232 m, ρ ≈ 0.80 de la del nivel del mar (fórmula); la densidad medida por frenado en Harp Helú es 0.82. **Las fórmulas de física (Magnus, arrastre, reescalado de movimiento) están registradas y explicadas en [`docs/fisica_altitud.md`](fisica_altitud.md)** — para que Fran las investigue y valide.
 - **Altitud de Harp Helú:** usamos **2,232 m** (`HARP_HELU_M` en `altitud.py`, fuente Mediotiempo/Milenio 4-jun-2025). El brief del ISAC dice "~2,240 m"; la diferencia (8 m) es despreciable y adoptamos 2,232 m por tener fuente citada en el código.
 - Hipótesis del brief: H1 (spin pierde en altura), H2 (cambio gana relativo), H3 (groundball pitchers valen más), H4 (spin rate solo es insuficiente; usar eficiencia).
+
+#### Implementación de la altitud (`efecto_altitud.py` … `contrafactual_altitud.py`, Matías — verificado 2026-10-14)
+
+La altitud entra por **tres canales**, cada uno medido o validado por separado (no solo como una columna más de LightGBM, que no basta:
+hay ~20 estadios, Harp Helú es la casa de los Diablos —equipo y estadio se mezclan— y el movimiento medido ya trae la altitud adentro).
+Solo temporadas de entrenamiento; el test sellado (2026) no se usó.
+
+**1. Efecto medido en la LMB (`efecto_altitud.py`, Idea 1).** Dentro de cada pitcher × tipo (efecto fijo; separa talento y equipo del estadio),
+`x = α + γ·ρ`, con ρ = `densidad_juego`; IC 95 % por bootstrap de pitchers (300). 482,365 pitches, 766 pitchers. Controles: SpinRate no cambia
+con ρ (elasticidad β = 0.00 [−0.01, 0.01]) y RelSpeed casi nada (+0.21 mph en Harp Helú) → el efecto de IVB/HB no está contaminado.
+
+| Tipo | IVB, Harp Helú − mar (in) | HB, Harp Helú − mar (in) |
+|---|---|---|
+| Four-Seam | **−3.71** [−3.79, −3.63] | −2.40 |
+| Sinker | −2.16 | −3.85 |
+| Cutter | −2.33 | −0.44 |
+| Changeup | −1.90 | **−4.00** |
+| Slider | −0.75 | +1.24 (menos movimiento hacia el guante) |
+| Curveball | +1.53 (menos caída) | +2.87 |
+| Splitter | usa el efecto del Changeup (61 pitchers; IC de IVB que cruza 0) | idem |
+
+- **El movimiento cae más que proporcionalmente a la densidad:** elasticidad IVB β ≈ 1.3 [1.31, 1.40] (HB 1.6), no 1.0 como dice la física simple (§3 de
+  `fisica_altitud.md`). Se usa el efecto medido y no la proporción IVB·ρ_destino/ρ_origen. **Cambia el método previsto en el Paso 10** (que decía IVB_bajo ≈ IVB_alto · ρ_bajo/ρ_alto).
+- **H1 (el spin pierde en altura): no.** El spin rate no cambia; lo que cae es el movimiento. **H2:** el cambio pierde menos que el promedio (ver delta relativo abajo).
+
+**2. Contrafactual del movimiento (`altitud_movimiento.py`, Idea 2).** `ajustar_movimiento(ivb, hb, rho_origen, rho_destino, tipo=None)`: forma **aditiva**,
+`x_destino = x_origen + γ_tipo·(ρ_destino − ρ_origen)` (la proporcional no está definida donde el HB promedia ≈ 0, p. ej. cutter). `normalizar_movimiento(df)` agrega `IVB_n`, `HB_n`
+(movimiento a nivel del mar, ρ = 1.00). Verificado: tras normalizar, la pendiente contra ρ es 0.00 en los 4 tipos principales. Límite: un solo γ por tipo (el cambio real es algo
+mayor en los pitches que se mueven más).
+
+**3. Precio de la bola en juego (`precio_in_play_altitud.py`, Idea 3 simple).** Valor del turno que termina en juego (el de `run_values.py`) ~ efecto fijo por **bateador**
++ ρ + conteo + estado (outs, corredores), EE agrupados por bateador; 91,436 turnos, 660 bateadores. **δ = −0.376 carreras por 1.00 de densidad** [−0.430, −0.323]:
+un batazo en juego cuesta **+0.065 carreras más en Harp Helú que a nivel del mar** [+0.056, +0.074] (promedio de un batazo en juego: +0.026; valor bruto en Harp Helú 0.071 vs 0.024 en el resto).
+El precio de `in_play` pasa a RV_inplay + δ·(ρ − ρ_medio)·P(in_play). Límites: un solo δ para todos los batazos (no hay modelo de contacto: **H3 sin probar**); lineal en ρ; extrapola de ρ medio 0.92 a 1.00.
+
+**Stuff+ v2 y v3 (`modelo_stuff_altitud.py`, `arsenal.py`, `modelo_stuff_arsenal.py`).** Mismos folds (`folds.csv`) y parámetros que v1, log-loss pareada.
+- **v2** = v1 con `IVB_n`, `HB_n` (movimiento a nivel del mar) + `densidad_juego`: mejora 1.02 % (v1 1.00 %; log-loss 1.4310 vs 1.4312). Calibración por aire: en Harp Helú sobre-predice bola en juego (18.9 % vs 18.4 % real) y sub-predice foul (16.9 % vs 17.5 %).
+- **v3 (Stuff+ oficial)** = v2 + arsenal (Idea 4): diferencias contra la recta primaria del pitcher en la temporada (velocidad, IVB_n, HB_n, release) y % de uso del tipo; con movimiento normalizado, son neutrales a la altitud.
+  Mejora **1.25 %** (whiff 2.77 % vs 2.32 %); **v3 gana a v2 en 5/5 folds** (dif. pareada +0.0033, std 0.0007). Pitchers sin recta: 0 %.
+- **Sesgo de v1 corregido:** pitches lanzados en Harp Helú: Stuff+ v1 = 97.2 vs 100.2 en el resto; v3 (nivel del mar) = 99.1 vs 100.1.
+
+**Park holdout (`park_holdout.py`, Idea 5).** Entrenar sin el estadio y probar en él, mismos parámetros, solo entrenamiento:
+
+| Prueba | v1 (sin altitud) | v2_mov (mov. normalizado) | v2 (+ densidad) |
+|---|---|---|---|
+| A. sin Harp Helú (29,446 pitches de prueba) | 0.89 % | **1.04 %** | 0.96 % |
+| B. sin altura extrema (138,490) | 1.01 % | 0.97 % | 1.02 % |
+
+El método generaliza (mejora ≈ 1 % también en estadios no vistos; sin colapso) y el **movimiento normalizado es lo robusto**. La **densidad como feature es inconclusa**: ayuda en B, empeora en A (sesgo in_play +0.79 pp).
+Por eso el canal "resultado" se reporta aparte y marcado como el menos validado. v3 no se corrió en park holdout (las features de arsenal son por pitcher × temporada).
+
+**Contrafactual (`contrafactual_altitud.py`).** Cada pitch (out-of-fold) evaluado en aire de nivel del mar (ρ = 1.00) y de Harp Helú (ρ = 0.828; en v3 también cambian las diferencias contra la recta, porque la recta pierde movimiento
+en el mismo aire), promediando los 12 conteos. Stuff+ = 100 + 10z con μ, σ del escenario *mar* por temporada (σ = 0.0063 carreras por pitch); `harp` usa los mismos μ, σ. Delta separado en canales (suman exacto):
+
+| Tipo | Stuff+ mar | Δ movimiento | Δ resultado | Δ precio | **Δ total** | **Δ relativo** |
+|---|---|---|---|---|---|---|
+| Four-Seam | 100.7 | −6.9 | −5.0 | −19.2 | −31.0 | **−5.0** |
+| Sinker | 94.7 | −2.2 | −4.7 | −22.7 | −29.5 | −3.5 |
+| Changeup | 96.3 | −0.8 | −3.0 | −19.5 | −23.3 | +2.7 |
+| Cutter | 96.6 | −0.5 | −2.2 | −20.2 | −22.9 | +3.2 |
+| Slider | 106.4 | −1.4 | −2.0 | −17.9 | −21.3 | +4.7 |
+| Curveball | 99.0 | −0.8 | −1.0 | −15.7 | −17.5 | +8.6 |
+| Splitter | 97.0 | +0.2 | −0.6 | −17.1 | −17.4 | +8.6 |
+| Sweeper | 95.4 | +0.5 | −1.0 | −15.6 | −16.1 | +9.9 |
+| **Todos** | 100.0 | −3.3 | −3.6 | −19.2 | **−26.0** | 0 |
+
+- **Lectura:** un pitch promedio pierde ≈ 26 puntos en Harp Helú, casi todo (−19) por el precio de la bola en juego: un parque con mucha carrera, un efecto casi uniforme. Lo que distingue un tipo de otro es el **delta relativo**
+  (cuánto más o menos pierde que el promedio): las **rectas pierden más** (Four-Seam −5.0, sobre todo por movimiento: −6.9) y los rompientes y el splitter pierden menos. Entre pitchers (n ≥ 200) el Δ total varía con sd 2.2 [−32.8, −19.0].
+- **H3 sin probar.** El sinker (pitch de rolling) pierde *más* que el promedio (probablemente por su mayor exposición a bola en juego, su Δ de precio es −22.7 vs −19.2; es una inferencia, no se midió); probar H3 requiere el modelo de contacto (Paso 7).
+- `xrv_neutral` reproduce `scoring.py` (dif. 1e-9).
+
+**Dashboard (Paso 11): pendiente.** Hay un borrador provisional (Streamlit) que todavía no se incluye en el repo; cuando se termine se documenta aquí.
+
+**Limitaciones a decir en el documento:** (1) un solo γ por tipo; (2) canal "resultado" inconcluso; (3) un solo δ para los batazos y sin modelo de contacto (H3, H4 —eficiencia de spin— sin hacer); (4) δ comparado dentro de bateador, no controla pitcher ni clima;
+(5) `densidad_juego` incluye la temperatura y Harp Helú se identifica por récord (hay otros dos estadios con ρ ≈ 0.82–0.83); (6) 19 pitches (2 juegos de 2024) sin densidad medida usan la media de su estadio; (7) el Δ en puntos depende de una σ pequeña (0.0063 carreras por pitch): el efecto de parque del precio de la bola en juego (≈ 0.012 carreras por pitch) ≈ 1.9σ.
+
+#### A quién contratar (`contratacion.py`, Matías — verificado 2026-10-14)
+
+Ranking de pitchers para Harp Helú, en **carreras por 100 pitches contra un pitcher promedio** (+ = mejor): `rating = ejecución + ajuste de altitud`.
+- **Ejecución:** −xRV_vs_conteo medio de **Pitching+** (2024+2025). Se **encoge** hacia la media de la liga con la confiabilidad R = var_real / (var_real + var_ruido/n), estimada de los datos (componentes de varianza: con 1,000 pitches R = 0.88). Incertidumbre = √(var_real·(1−R)); es un **mínimo** (no incluye que el talento cambie de un año a otro; la estabilidad real de Pitching+ 2024→2025 es r = 0.60).
+- **Ajuste de altitud:** `delta_relativo` del contrafactual × (σ de Stuff+ / 10) = carreras por pitch que ese pitcher pierde de más o de menos que un pitch promedio en Harp Helú. **Es un cálculo del modelo, no validado contra resultados reales.**
+- **Por qué Pitching+ de base** (no inventé pesos): se probó qué score de 2024 predice mejor el resultado de 2025 (181 pitchers, ≥ 50 turnos por año; K−BB% y carreras por turno ajustadas por parque): Pitching+ r = 0.36–0.38 (K−BB%) y 0.24–0.25 (carreras); Location+ 0.26 / 0.18; **Stuff+ solo 0.03–0.05 / 0.04–0.07**; el resultado pasado 0.43–0.47 / 0.18–0.23. (Con el "resultado real por pitch" como meta, Stuff+ daba r = 0.02: esa meta es débil porque `rv_tabla` valúa todo batazo en juego igual dentro de un conteo.)
+- **Prueba retrospectiva** (ranking con solo 2024 → 2025, 182 pitchers, sin parámetros ajustados): r = 0.39 con K−BB% (IC95 0.26–0.51; el resultado pasado 0.42) y 0.25 con carreras por turno (0.10–0.38; el resultado pasado 0.19). Los 20 primeros: K−BB% +10.4 vs +6.8 el promedio y +1.5 los 20 últimos; carreras por 100 turnos +1.9 vs −0.9 vs −3.2. **La relación es moderada: sirve para una lista corta, no para garantizar un nombre.**
+- **Resultado:** 512 pitchers con ≥ 300 pitches, 33 de los Diablos (los que lanzan de local en Harp Helú; el #1 general es uno de ellos). Entre los externos, #1 `pitcher_00458` con +1.40 ± 0.19 carreras/100 pitches (arsenal Slider 41 %, Changeup 28 %, Curveball 18 %; confianza media, 698 pitches); **solo 66 % de probabilidad de ser mejor que el #2**, así que se recomienda una lista corta (#1, #2 y #3). La dispersión entre pitchers: ejecución sd 0.43, ajuste de altitud sd 0.14 (carreras/100 pitches).
+- No considera salud, edad, contrato, rol (abridor/relevo) ni disponibilidad; los pitchers son anónimos. Salidas: `../salidas/ranking_contratacion.csv`, `prueba_retrospectiva.json`.
 
 ### Paso 11 · Productos
 
@@ -306,10 +391,12 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 - Semilla fija 42. Instalación con `requirements.txt`.
 - Notebooks para explorar; lo definitivo va a código `.py`.
 
-## 6. Estado (2026-10-06)
+## 6. Estado (2026-10-14)
 
 - **Hecho:** `limpieza.py` completa (bunts, `SpinAxis` y ángulos volteados, tabla de filtros), `objetivo.py`, `particion.py`, `modelo_multiclase.py` v1 (opción B + `SpinAxis`, `min_child_samples=1000`, sin altitud), `busqueda_min_child.py`, `predecir_12_conteos.py`, `run_values.py` (RV_k con corredores), `scoring.py` v1 (Stuff+ neutral + contexto real), **Location+ completo** (`zona.py`, `modelo_location.py`, `busqueda_min_child_location.py`, `scoring_location.py`), **Pitching+ completo** (`pitching_plus.py` + `scoring_pitching.py`), `estadios.py`/`altitud.py` (altitud continua). README, CLAUDE.md, guía y decisions al día.
-- **Pendiente inmediato:** `contacto.py` (Paso 7, Matías); contrafactual de altitud (Paso 10); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
+- **Altitud (Paso 10), hecho 2026-10-14:** efecto medido (`efecto_altitud.py`), `altitud_movimiento.py`, precio de bola en juego (`precio_in_play_altitud.py`), Stuff+ v2/v3 con arsenal (`modelo_stuff_altitud.py`, `arsenal.py`, `modelo_stuff_arsenal.py`), park holdout y contrafactual. **Stuff+ oficial = v3.**
+- **Contratación (2026-10-14):** `contratacion.py` (ranking de pitchers para Harp Helú y prueba retrospectiva). **Dashboard (Paso 11): pendiente** (borrador provisional fuera del repo).
+- **Pendiente inmediato:** `contacto.py` (Paso 7, Matías; prueba H3); H4 (eficiencia de spin); validación final (Paso 9); scores finales (reentrenar con todo); pregunta a ISAC sobre altitud/estadios/clima.
 
 ## 7. Bitácora de cambios
 
@@ -335,3 +422,5 @@ No sustituye la validación final (esa será con el xRV/Stuff+ completo); es sol
 - **2026-10-06:** README al día (Location+, `scoring.py` ya hecho, árbol de salidas, porcentajes de clases de la re-corrida, instalación con `requirements.txt` también en Windows). Nuevo `requirements.txt` (pandas, numpy, pyarrow, lightgbm, scikit-learn, scipy; se quitó `pybaseball`, que ningún script usa): §5 ya lo daba por existente.
 - **2026-10-12:** **Pitching+ modelo** (`pitching_plus.py`, Ricardo). Ve todo (8 físicas + conteo + `PlateLocHeight`/`lado_relativo` + `bateador_zurdo`/`misma_mano`), sin `tipo_pitch` ni altitud, `min_child_samples = 1000`, mismos folds que Stuff+/Location+ (`folds.csv`, `assert`). Mejora sobre el baseline por conteo **30.3 %** (Stuff+ 1.0 %, Location+ 29.2 %): casi todo es la ubicación (ball 53.6 % vs 0.02 % en Stuff+). Calibración general ≤ 0.04 pp, por conteo máx 1.13 pp (3-0). OOF con las mismas columnas que Stuff+. Nota de reparto: Pitching+ figura como de Matías en §8; lo construyó Ricardo en esta sesión — coordinar para no duplicar.
 - **2026-10-12:** **Pitching+ score** (`scoring_pitching.py`, Ricardo), contexto `"real"` igual que Location+. Media 100 / sd 10 por temporada; cada conteo centrado en 0. Chequeo de la guía §4 OK: Pitching+ correlaciona con Stuff+ (r = 0.42) y con Location+ (r = 0.87), siendo Stuff+ y Location+ casi independientes (r = 0.04) → ejecución combinada dominada por la ubicación. A nivel pitcher: vs bolas r = −0.73, vs whiff r = +0.27. Estabilidad 2024→2025 r = 0.60. Salidas `scores_pitching_pitch.parquet` + agregados + `xrv_promedio_conteo_pitching.csv`.
+- **2026-10-14:** **Altitud completa** (Matías). Efecto medido en la LMB por pitcher × tipo (IVB −3.7 in en la recta en Harp Helú; elasticidad ≈ 1.3, no 1.0; spin sin cambio → H1 no); `ajustar_movimiento` usa el efecto medido aditivo, **no** la proporción IVB·ρ (cambia lo que decía el Paso 10); precio de la bola en juego +0.065 carreras en Harp Helú (efecto fijo por bateador); Stuff+ **v3** (movimiento normalizado + densidad + arsenal) pasa a ser el oficial: mejora 1.25 % (v1 1.00 %), gana a v2 en 5/5 folds, corrige el sesgo de Harp Helú (97.2 → 99.1); park holdout: el método generaliza, la densidad como feature es inconclusa; contrafactual por canales (Δ promedio −26: movimiento −3.3, resultado −3.6, precio −19.2; las rectas pierden más que el promedio). Contrato cambiado: `ajustar_movimiento` vive en `altitud_movimiento.py` con `tipo` opcional (guía §6).
+- **2026-10-14:** **Ranking de contratación** (Matías). `contratacion.py`: rating = ejecución (Pitching+ encogido por poca muestra) + ajuste de altitud (contrafactual), en carreras por 100 pitches; prueba retrospectiva 2024 → 2025: r = 0.39 con K−BB% y 0.25 con carreras por turno (moderada: lista corta, no certeza). **Hallazgo:** Stuff+ de un año casi no predice K−BB% ni carreras del siguiente (r ≈ 0.03–0.07), por eso el ranking usa Pitching+ de base. Cada pitcher lleva su incertidumbre, para poder decir con qué probabilidad el #1 es mejor que el #2 (66 % entre los dos primeros externos); no se da una cifra de carreras por temporada porque sobreestimaría la ventaja real.

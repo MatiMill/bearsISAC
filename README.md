@@ -4,7 +4,7 @@ Hackathon ISAC 2026 · Diablos Rojos · ITAM
 
 Tres calificaciones por lanzamiento para la LMB, calibradas por altitud (Diablos Rojos, Harp Helú, ~2,232 m):
 
-- **Stuff+**: ¿qué tan buena es la bola? Solo física (velocidad, spin, movimiento, punto de salida).
+- **Stuff+**: ¿qué tan buena es la bola? Solo física (velocidad, spin, movimiento, punto de salida) y arsenal, con el movimiento llevado a nivel del mar para que no dependa del estadio. La versión oficial es la **v3**; la v1 es la base sin altitud.
 - **Location+**: ¿la puso donde debía? Solo ubicación, dado el conteo, el bateador y el tipo de pitch.
 - **Pitching+**: ¿qué tan bueno fue el lanzamiento completo? Todo junto: física, ubicación, conteo y lado del bateador.
 
@@ -43,14 +43,22 @@ DIABLOS/
 │   ├── validacion_pitching.csv       ← lo genera pitching_plus.py
 │   ├── scores_pitching_pitch.parquet ← Pitching+ por pitch (scoring_pitching.py)
 │   ├── scores_pitching_pitcher_tipo.csv / scores_pitching_pitcher.csv
-│   └── xrv_promedio_conteo_pitching.csv ← promedio que se resta en cada conteo
+│   ├── xrv_promedio_conteo_pitching.csv ← promedio que se resta en cada conteo
+│   ├── efecto_altitud.csv            ← efecto medido de la densidad (efecto_altitud.py)
+│   ├── precio_in_play_altitud.csv    ← precio de la bola en juego por densidad (precio_in_play_altitud.py)
+│   ├── predicciones_oof_stuff_altitud.parquet / predicciones_oof_stuff_arsenal.parquet ← Stuff+ v2 y v3
+│   ├── park_holdout.csv              ← park_holdout.py
+│   ├── scores_stuff_altitud_pitch.parquet ← Stuff+ v3 en nivel del mar y Harp Helú por pitch (contrafactual_altitud.py)
+│   ├── delta_altitud_tipo.csv / delta_altitud_pitcher_tipo.csv / delta_altitud_pitcher.csv
+│   └── calibracion_stuff_altitud.json ← media, sd y precio de bola en juego
 ├── modelos/
 │   ├── modelo_resultado.txt          ← Stuff+: modelo final (modelo_multiclase.py)
 │   ├── modelo_resultado_fold1..5.txt ← Stuff+: un modelo por fold
 │   ├── modelo_location.txt           ← Location+: modelo final (modelo_location.py)
 │   ├── modelo_location_fold1..5.txt  ← Location+: un modelo por fold
 │   ├── modelo_pitching.txt           ← Pitching+: modelo final (pitching_plus.py)
-│   └── modelo_pitching_fold1..5.txt  ← Pitching+: un modelo por fold
+│   ├── modelo_pitching_fold1..5.txt  ← Pitching+: un modelo por fold
+│   └── modelo_stuff_altitud*.txt, modelo_stuff_arsenal*.txt ← Stuff+ v2 y v3 (final y un modelo por fold)
 └── bearsISAC/                        ← este repo
     ├── CLAUDE.md
     ├── requirements.txt
@@ -68,6 +76,14 @@ DIABLOS/
     ├── scoring_location.py
     ├── pitching_plus.py
     ├── scoring_pitching.py
+    ├── efecto_altitud.py
+    ├── altitud_movimiento.py
+    ├── precio_in_play_altitud.py
+    ├── arsenal.py
+    ├── modelo_stuff_altitud.py
+    ├── modelo_stuff_arsenal.py
+    ├── park_holdout.py
+    ├── contrafactual_altitud.py
     ├── estadios.py
     ├── altitud.py
     └── docs/
@@ -122,6 +138,15 @@ python busqueda_min_child_location.py   # Location+ (resultado: 2000)
 
 python estadios.py    # 1) estadio y densidad del aire de cada juego
 python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
+
+# Altitud y Stuff+ v3 (necesitan estadios.py, folds.csv de modelo_multiclase.py y rv_tabla.csv de run_values.py; en este orden)
+python efecto_altitud.py           # 1) cuánto cambian IVB, HB, spin y velocidad con la densidad (mismo pitcher y tipo)
+python precio_in_play_altitud.py   # 2) cuánto más vale un batazo en juego con menos aire
+python modelo_stuff_altitud.py     # 3) Stuff+ v2: movimiento a nivel del mar + densidad
+python modelo_stuff_arsenal.py     # 4) Stuff+ v3 (oficial): v2 + arsenal
+python contrafactual_altitud.py    # 5) el mismo pitch en nivel del mar y en Harp Helú, con el cambio por canal
+python contratacion.py             # 6) ranking de pitchers para Harp Helú + prueba retrospectiva 2024 → 2025 (necesita scoring_pitching.py y scoring_location.py)
+python park_holdout.py             # (opcional) entrenar sin Harp Helú / sin altura extrema y probar ahí
 ```
 
 ## Archivos
@@ -140,6 +165,15 @@ python altitud.py     # 2) altitud de cada estadio (necesita estadios.py antes)
 | `scoring_location.py` | Location+ por pitch, pitcher × tipo y pitcher, más 5 revisiones (zona por conteo, tasa de bolas, correlación con Stuff+, estabilidad entre temporadas). |
 | `pitching_plus.py` | Modelo de Pitching+: LightGBM multiclase con **todo**: las 8 columnas de física de Stuff+, la ubicación de Location+, conteo y lado del bateador (sin `tipo_pitch` ni altitud). Usa **los mismos folds** que Stuff+ y Location+ (`folds.csv`). Guarda predicciones fuera de muestra y modelos. |
 | `scoring_pitching.py` | Pitching+ por pitch, pitcher × tipo y pitcher (`calcular_xrv(df, "real")` y escala 100 + 10z), más 5 revisiones, incluida la correlación con Stuff+ y Location+. |
+| `efecto_altitud.py` | Mide con datos de la LMB cuánto cambian IVB, HB, spin y velocidad con la densidad, **dentro del mismo pitcher y tipo de pitch** (así el equipo no se confunde con el estadio). `agregar_densidad(df)` une `densidad_juego` a los pitches. |
+| `altitud_movimiento.py` | `ajustar_movimiento(ivb, hb, rho_origen, rho_destino, tipo)` con el efecto medido (aditivo por tipo) y `normalizar_movimiento(df)`, que lleva IVB y HB a nivel del mar (`IVB_n`, `HB_n`). |
+| `precio_in_play_altitud.py` | Cuánto más vale un batazo en juego cuando el aire es menos denso, comparando al mismo bateador. |
+| `arsenal.py` | Features de arsenal: diferencias de velocidad, movimiento y release contra la recta primaria del pitcher, y % de uso del tipo. |
+| `modelo_stuff_altitud.py` | Stuff+ v2: movimiento normalizado + `densidad_juego`. Mismos folds que Stuff+ v1. |
+| `modelo_stuff_arsenal.py` | **Stuff+ v3 (oficial):** v2 + arsenal. Compara con v2 fold a fold. |
+| `park_holdout.py` | Entrena sin Harp Helú (o sin los estadios de altura extrema) y prueba ahí, con v1, v2 sin densidad y v2. |
+| `contrafactual_altitud.py` | Califica cada pitch en el aire de nivel del mar y en el de Harp Helú y separa el cambio en tres canales (movimiento, resultado, precio de la bola en juego). |
+| `contratacion.py` | Ranking de pitchers para Harp Helú: rating = ejecución (Pitching+ ajustado por poca muestra) + ajuste de altitud, en carreras por 100 pitches; marca a los pitchers de los Diablos; prueba retrospectiva del ranking de 2024 contra 2025. |
 | `run_values.py` | Calcula el precio en carreras de cada resultado según el conteo (`RV_k`), con datos sin limpiar de las temporadas de entrenamiento. Guarda `rv_tabla.csv`, `valores_evento.csv` y `pesos_conteo.csv` en `../salidas/`. |
 | `estadios.py` | Reconstruye en qué estadio se jugó cada juego (los datos no lo dicen), mide la densidad del aire con el frenado de las rectas e identifica los juegos en el Harp Helú. Genera `estadios.parquet`. |
 | `altitud.py` | Calibra la densidad medida con las altitudes reales de los 20 estadios de la LMB y estima la altitud de cada uno. Genera `altitudes.parquet`. |
@@ -229,6 +263,33 @@ Cómo se calcula:
 5. **Precio de cada resultado:** cuánto cambia V. Ejemplo: bola en 2-1 = V(3-1) − V(2-1) = +0.14; whiff en 3-2 = ponche − V(3-2) = −0.43.
 
 Solo usa 2024–2025: la última temporada es el test sellado. Limitación: se sabe cuántos corredores hay, no en qué base.
+
+## Altitud en los scores (Stuff+ v3 y contrafactual)
+Meter la densidad como una columna más de LightGBM no basta: hay ~20 estadios, Harp Helú es la casa de los Diablos (equipo y estadio se mezclan) y el movimiento medido ya viene reducido por el aire. Por eso la altitud entra por **tres canales**, cada uno medido por su lado:
+
+1. **Movimiento.** `efecto_altitud.py` compara al **mismo pitcher con el mismo tipo de pitch** en aires distintos (482 mil pitches, 766 pitchers). En Harp Helú la recta pierde **3.7 pulgadas de IVB**; el spin no cambia. El movimiento cae **más que proporcionalmente** a la densidad (elasticidad ≈ 1.3, no 1.0 como dice la física simple), así que usamos el efecto medido. `modelo_stuff_*` entrena con el movimiento llevado a nivel del mar, para que Stuff+ califique al pitcher y no al estadio (en v1, los pitches de Harp Helú salían con 97 vs. 100 en el resto; ahora 99.1 vs. 100.1).
+2. **Resultado.** `densidad_juego` entra al modelo para que aprenda cómo cambian whiff, foul y bola en juego con el aire. **Es el canal menos validado:** en el park holdout no mejoró de forma consistente.
+3. **Precio de la bola en juego.** Un batazo en juego cuesta **+0.065 carreras más** en Harp Helú que a nivel del mar (mismo bateador, `precio_in_play_altitud.py`).
+
+**Stuff+ v3 (oficial)** agrega arsenal (diferencias contra la recta primaria, que con el movimiento normalizado no dependen de la altitud): mejora 1.25 % sobre el baseline por conteo (v1: 1.00 %), y gana a v2 en los 5 folds.
+
+**Park holdout** (entrenar sin Harp Helú y probar ahí): el método generaliza, con mejora ≈ 1 % también en estadios que el modelo no vio. Lo robusto es el movimiento normalizado; la densidad como feature es inconclusa.
+
+**Resultado del contrafactual** (el mismo pitch, nivel del mar → Harp Helú; puntos de Stuff+):
+
+| Tipo | Movimiento | Resultado | Bola en juego | **Total** | **Relativo al promedio** |
+|---|---|---|---|---|---|
+| Four-Seam | −6.9 | −5.0 | −19.2 | −31.0 | **−5.0** |
+| Sinker | −2.2 | −4.7 | −22.7 | −29.5 | −3.5 |
+| Changeup | −0.8 | −3.0 | −19.5 | −23.3 | +2.7 |
+| Slider | −1.4 | −2.0 | −17.9 | −21.3 | +4.7 |
+| Curveball | −0.8 | −1.0 | −15.7 | −17.5 | +8.6 |
+
+Un pitch promedio pierde ≈ 26 puntos en Harp Helú, casi todo por el precio de la bola en juego (un parque con mucha carrera, efecto casi igual para todos). Lo que distingue a un tipo de otro es el cambio **relativo**: las rectas pierden más que el promedio (sobre todo por movimiento) y los rompientes pierden menos.
+
+**Límites:** un solo efecto por tipo de pitch; un solo precio para todos los batazos (sin modelo de contacto, así que no se prueba que los pitchers de rolling pierdan menos); el efecto del bateo compara al mismo bateador pero no controla clima ni pitcher; la eficiencia de spin (H4) no se modeló. Detalle y números en `docs/decisions.md` (Paso 10).
+
+**A quién contratar (`contratacion.py`).** Rating = ejecución (Pitching+, encogido hacia el promedio cuando hay pocos pitches) + ajuste por altura, en carreras por 100 pitches contra un pitcher promedio. Se probó con datos reales: el ranking hecho con 2024 acertó en 2025 de forma **moderada** (r = 0.39 con K−BB%, 0.25 con carreras por turno; los 20 primeros superaron al promedio y a los 20 últimos), así que sirve para una **lista corta**, no para garantizar un nombre. Hallazgo: Stuff+ solo casi no predice el resultado del año siguiente; la base del ranking es Pitching+. El ajuste por altura sale del modelo y no se pudo validar contra resultados reales.
 
 ## Estadios y altitud: cómo funciona
 Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimos así:

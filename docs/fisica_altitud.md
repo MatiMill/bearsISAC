@@ -64,6 +64,16 @@ $$\text{IVB}_{\text{destino}} \approx \text{IVB}_{\text{origen}}\cdot\frac{\rho_
 - El tiempo de vuelo `t` aproximadamente constante — en realidad cambia un poco porque menos arrastre → la bola llega algo antes. Esto hace que la relación no sea *exactamente* lineal.
 - **Por eso NO lo tomamos como dogma:** se valida empíricamente (Paso 3) con pitchers que lanzaron en densidades distintas. Si el factor real difiere del ratio, se corrige con los datos.
 
+### 3.1 Lo que medimos en la LMB (2026-10-14)
+
+El Paso 3 se hizo (`efecto_altitud.py`): mismo pitcher y tipo, aire distinto, 482,365 pitches y 766 pitchers, IC por bootstrap de pitchers.
+
+- **El movimiento SÍ baja con la densidad, pero MÁS que proporcionalmente:** elasticidad β ≈ 1.3 para IVB (1.6 para HB), no 1.0. Recta Four-Seam: **−3.71 in de IVB** y −2.40 de HB en Harp Helú (ρ = 0.828) frente a nivel del mar.
+  Posibles razones (sin probar): `densidad_juego` está definida con el arrastre y mezcla temperatura; el tiempo de vuelo y el coeficiente de sustentación también cambian con el aire.
+- **El spin no cambia** (β = 0.00 [−0.01, 0.01]): lo pone la mano, como suponíamos (C_L constante). La velocidad de salida casi tampoco (+0.21 mph en Harp Helú). Son los controles que dicen que el efecto de IVB/HB es del aire y no de otra cosa.
+- Por eso el código **no usa** el reescalado IVB·ρ_destino/ρ_origen de arriba, sino el efecto medido por tipo: `x_destino = x_origen + γ_tipo·(ρ_destino − ρ_origen)` (`altitud_movimiento.py`).
+- Para Fran: pendiente explicar físicamente por qué β > 1 y por qué la curva y el slider cambian de signo en HB (menos movimiento hacia el guante).
+
 ---
 
 ## 4. Arrastre (drag) y `densidad_juego`

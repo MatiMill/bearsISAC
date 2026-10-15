@@ -46,6 +46,14 @@ Modelo Stuff+ / Location+ / Pitching+ para la Liga Mexicana de Béisbol, calibra
 | `scoring_location.py` | Location+: xRV en el conteo real − promedio del conteo → escala 100 + 10z (Matías) |
 | `pitching_plus.py` | Pitching+: LightGBM multiclase con física + ubicación + conteo + lado del bateador, mismos folds que Stuff+ (Ricardo) |
 | `scoring_pitching.py` | Pitching+: xRV en el conteo real − promedio del conteo → escala 100 + 10z (Ricardo) |
+| `efecto_altitud.py` | Altitud: efecto medido de la densidad en IVB/HB/spin/velocidad dentro de pitcher × tipo; `agregar_densidad(df)` (Matías) |
+| `altitud_movimiento.py` | `ajustar_movimiento` (efecto medido, aditivo por tipo) y `normalizar_movimiento` → `IVB_n`, `HB_n` (Matías) |
+| `precio_in_play_altitud.py` | Cuánto más vale un batazo en juego con menos aire (efecto fijo por bateador) (Matías) |
+| `arsenal.py` | Features de arsenal: diferencias contra la recta primaria y % de uso (Matías) |
+| `modelo_stuff_altitud.py` / `modelo_stuff_arsenal.py` | Stuff+ v2 (movimiento normalizado + densidad) y **v3 oficial** (+ arsenal) (Matías) |
+| `park_holdout.py` | Entrenar sin Harp Helú / sin altura extrema y probar ahí (Matías) |
+| `contrafactual_altitud.py` | El mismo pitch en aire de nivel del mar y de Harp Helú, delta por canal (Matías) |
+| `contratacion.py` | Ranking de pitchers para Harp Helú (ejecución + ajuste de altitud) y prueba retrospectiva 2024 → 2025 (Matías) |
 | `estadios.py` | Reconstruye equipos/estadios y densidad del aire por juego (Matías) |
 | `altitud.py` | Calibra densidad medida vs. altitud real por estadio (Matías) |
 | `requirements.txt` | Dependencias (`pip install -r requirements.txt`) |
