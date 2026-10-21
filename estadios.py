@@ -77,8 +77,10 @@ k = rectas["ay0"] / (rectas["vx0"]**2 + rectas["vy0"]**2 + rectas["vz0"]**2)
 k_juego = k.groupby(rectas["game_anon_id"]).agg(["median", "size"])
 juegos["k"] = k_juego["median"].where(k_juego["size"] >= MIN_RECTAS)
 
-# Densidad relativa: 1.00 = mediana de los juegos sin altitud
-referencia = juegos.loc[juegos["altitud"] == "No Altitude", "k"].median()
+# Densidad relativa: 1.00 = mediana de los juegos sin altitud DE LAS TEMPORADAS DE ENTRENAMIENTO
+# (la última temporada es el test sellado y además su densidad medida sube ≈ 2 %: no debe mover la referencia)
+temporada_test = juegos["year"].max()
+referencia = juegos.loc[(juegos["altitud"] == "No Altitude") & (juegos["year"] != temporada_test), "k"].median()
 juegos["densidad_juego"] = juegos["k"] / referencia
 
 
@@ -112,7 +114,7 @@ tabla = tabla.join(pct.add_prefix("pct_local_")).sort_values("densidad")
 
 #Identificar estadio Harp Helu, usando las estadisticas de temporadas pasadas, encontrando el equipo mas dominante de la liga y matching la altura con Diablos Rojos
 candidatos = tabla[(tabla["altitud"] == "Extreme Altitude") & (tabla["juegos"] >= MIN_JUEGOS_ESTADIO)]
-HARP_HELU = candidatos.filter(like="pct_local").mean(axis=1).idxmax()
+HARP_HELU = candidatos.drop(columns=f"pct_local_{temporada_test}").filter(like="pct_local").mean(axis=1).idxmax()   # sin el test sellado
 juegos["harp_helu"] = (juegos["estadio"] == HARP_HELU) & (juegos["altitud"] == "Extreme Altitude")
 
 print(tabla.round(3).to_string())

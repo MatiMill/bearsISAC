@@ -11,7 +11,12 @@ Uso:
     python particion.py     # imprime el reporte del split sobre los datos limpios
 """
 
+import os
+
 PITCHER = "pitcher_anon_id"
+# Modo final (BEARS_FINAL=1): después de validar en el test sellado con validacion_test.py, la temporada sellada pasa a
+# ser parte del entrenamiento para los scores finales. Sin la variable, todo sigue como antes (2026 sellado).
+MODO_FINAL = os.environ.get("BEARS_FINAL") == "1"
 
 
 def separar_test(df):
@@ -20,11 +25,12 @@ def separar_test(df):
     El test es la última temporada (year más grande); el entrenamiento es todo
     lo demás. Funciona con cualquier df que tenga la columna 'year'.
 
-    Devuelve (entrenamiento, test).
+    Devuelve (entrenamiento, test). En modo final (BEARS_FINAL=1) el entrenamiento es TODO el df y `test` queda
+    solo como la última temporada (ya validada), que los scripts no usan salvo para imprimir su tamaño.
     """
     ultima = df["year"].max()
     test = df[df["year"] == ultima]
-    entrenamiento = df[df["year"] != ultima]
+    entrenamiento = df if MODO_FINAL else df[df["year"] != ultima]
     return entrenamiento, test
 
 

@@ -48,6 +48,7 @@ def agregar_resultado(df):
     df["outcome_class"] = df["PitchCall"].map(MAPA_PITCHCALL)
 
     sin_clase = df.loc[df["outcome_class"].isna(), "PitchCall"].value_counts(dropna=False)
+    sin_clase = sin_clase[sin_clase > 0]        # PitchCall es categórica: value_counts lista también las categorías con 0 filas
     if len(sin_clase) > 0:
         print("AVISO: estos PitchCall no tienen clase y se van a quitar:")
         for valor, n in sin_clase.items():

@@ -51,10 +51,13 @@ def main():
     } for m in VALORES])
 
     v_best = int(tabla.loc[tabla["logloss_media"].idxmin(), "min_child_samples"])
-    mayores_indistinguibles = [
-        m for m in VALORES
-        if m > v_best and int((ll_por_valor[v_best] < ll_por_valor[m]).sum()) < MIN_FOLDS_CONSISTENTE
-    ]
+    # Se sube desde el mejor y se PARA en el primer valor claramente peor (v_best pierde ya no en < 4/5 folds sino en >= 4/5):
+    # sin el alto, un valor muy grande "indistinguible" podía ganar aunque uno intermedio fuera claramente peor.
+    mayores_indistinguibles = []
+    for m in sorted(v for v in VALORES if v > v_best):
+        if int((ll_por_valor[v_best] < ll_por_valor[m]).sum()) >= MIN_FOLDS_CONSISTENTE:
+            break
+        mayores_indistinguibles.append(m)
     elegido = max(mayores_indistinguibles) if mayores_indistinguibles else v_best
     folds_best_gana = {m: int((ll_por_valor[v_best] < ll_por_valor[m]).sum()) for m in VALORES if m != v_best}
 

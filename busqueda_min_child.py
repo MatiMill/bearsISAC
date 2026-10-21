@@ -59,16 +59,19 @@ def main():
 
     # ---- elección con la regla corregida
     v_best = int(tabla.loc[tabla["logloss_media"].idxmin(), "min_child_samples"])
-    mayores_indistinguibles = [
-        m for m in VALORES
-        if m > v_best and int((ll_por_valor[v_best] < ll_por_valor[m]).sum()) < MIN_FOLDS_CONSISTENTE
-    ]
+    # Se sube desde el mejor y se PARA en el primer valor claramente peor (v_best pierde ya no en < 4/5 folds sino en >= 4/5):
+    # sin el alto, un valor muy grande "indistinguible" podía ganar aunque uno intermedio fuera claramente peor.
+    mayores_indistinguibles = []
+    for m in sorted(v for v in VALORES if v > v_best):
+        if int((ll_por_valor[v_best] < ll_por_valor[m]).sum()) >= MIN_FOLDS_CONSISTENTE:
+            break
+        mayores_indistinguibles.append(m)
     elegido = max(mayores_indistinguibles) if mayores_indistinguibles else v_best
 
     print("Resultado de la búsqueda (comparación pareada contra 1000):")
     print(tabla.round(5).to_string(index=False))
     print(f"\nMenor log-loss promedio: min_child_samples={v_best}.")
-    print(f"Valores más grandes que {v_best} e indistinguibles de él (1000 no gana en >=4/5 folds): "
+    print(f"Valores más grandes que {v_best} e indistinguibles de él ({v_best} no gana en >=4/5 folds): "
           f"{mayores_indistinguibles if mayores_indistinguibles else 'ninguno'}.")
     print(f"Elegido: min_child_samples={elegido}.")
 

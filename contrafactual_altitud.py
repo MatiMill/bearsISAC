@@ -3,14 +3,21 @@ Altitud, Idea 2 (contrafactual): el MISMO pitch en el aire de nivel del mar y en
 
 Stuff+ v3 (altitud + arsenal) califica cada pitch, con su movimiento llevado a nivel del mar, en dos escenarios:
 
-    mar    movimiento normalizado, densidad 1.00
-    harp   movimiento ajustado a Harp Helú (altitud_movimiento.ajustar_movimiento), densidad 0.828; en v3 también
-           cambian ivb_diff_vs_fb y hb_diff_vs_fb, porque la recta de referencia pierde movimiento en el mismo aire
+    mar    movimiento normalizado (IVB_n, HB_n), densidad 1.00
+    harp   el MISMO movimiento normalizado (y las mismas diferencias contra la recta), densidad 0.830
 
-y la diferencia se separa en tres canales:
+El modelo se entrenó con IVB_n/HB_n (movimiento a nivel del mar) más `densidad_juego`: en un juego de Harp Helú ve
+siempre (movimiento a nivel del mar, 0.83), así que la densidad ya trae el costo del movimiento perdido. Por eso el
+escenario `harp` NO baja además el movimiento (hacerlo cuenta dos veces la pérdida: auditoría 2026-10-21; con las dos
+bajas, el modelo predecía 10.2 % de whiffs y 19.9 % de bolas en juego en Harp Helú contra 11.0 % y 18.4 % reales; sin la
+segunda baja, 10.8 % y 19.0 %).
 
-    movimiento   la bola se mueve menos         (mismo modelo, densidad 1.00, solo cambia IVB/HB)
-    resultado    lo que el modelo aprendió de la densidad (whiff, foul, bola en juego), con el movimiento ya ajustado
+El delta total se separa en tres canales (suman exacto):
+
+    movimiento   la bola se mueve menos         (mismo modelo, densidad 1.00: movimiento bajado a Harp Helú menos movimiento
+                                                 a nivel del mar; en v3 también cambian las diferencias contra la recta,
+                                                 porque la recta pierde movimiento en el mismo aire)
+    resultado    el resto de lo que el modelo aprendió de la densidad (whiff, foul, bola en juego) = (harp − mar) − movimiento
     precio       un batazo en juego cuesta más carreras (precio_in_play_altitud.py)
 
 xRV de cada escenario = promedio de los 12 conteos con los pesos de la liga (igual que Stuff+ v1, scoring.py),
@@ -110,10 +117,10 @@ def main():
         idx = np.flatnonzero(fold == k)
         sub = df.iloc[idx]
         modelo = lgb.Booster(model_file=str(CARPETA_MODELOS / f"{PREFIJO_MODELO}_fold{k}.txt"))
-        b_mar, b_harp = base_escenario(sub, RHO_MAR), base_escenario(sub, RHO_HARP)
+        b_mar, b_mov = base_escenario(sub, RHO_MAR), base_escenario(sub, RHO_HARP)    # b_mov: movimiento bajado a Harp Helú
         res[idx, 0], res[idx, 1] = xrv_neutral(modelo.predict, b_mar, FEATURES, rv_wide, pesos, rho=RHO_MAR)
-        res[idx, 2], _ = xrv_neutral(modelo.predict, b_harp, FEATURES, rv_wide, pesos, rho=RHO_MAR)
-        res[idx, 3], res[idx, 4] = xrv_neutral(modelo.predict, b_harp, FEATURES, rv_wide, pesos, rho=RHO_HARP)
+        res[idx, 2], _ = xrv_neutral(modelo.predict, b_mov, FEATURES, rv_wide, pesos, rho=RHO_MAR)    # solo canal movimiento
+        res[idx, 3], res[idx, 4] = xrv_neutral(modelo.predict, b_mar, FEATURES, rv_wide, pesos, rho=RHO_HARP)  # escenario harp
         print(f"  fold {k}: {len(idx):,} pitches × 12 conteos × 3 escenarios")
     r = pd.DataFrame(res, columns=cols, index=df.index)
 
@@ -139,6 +146,10 @@ def main():
     # pitch de otro es cuánto más o menos pierde que el promedio: delta_relativo = delta_total - media de la liga.
     delta_medio = float(out["delta_total"].mean())
     out["delta_relativo"] = out["delta_total"] - delta_medio
+    # Stuff+ en Harp Helú en SU propia escala (100 = pitch promedio de Harp Helú): el parque cuesta lo mismo a todos
+    # (≈ −19 puntos casi todo por el precio de la bola en juego), así que en la escala de nivel del mar un pitch
+    # promedio saldría ≈ 74 y parecería malo cuando solo es el parque.
+    out["stuff_plus_harp_centrado"] = out["stuff_plus_harp"] - delta_medio
     suma = out[["delta_movimiento", "delta_resultado", "delta_precio"]].sum(axis=1)
     assert np.allclose(suma, out["delta_total"], atol=1e-6), "los tres canales no suman el delta total"
     out["stuff_plus_v1"] = out["PitchUID"].map(
@@ -150,14 +161,17 @@ def main():
     canales = ["delta_movimiento", "delta_resultado", "delta_precio", "delta_total", "delta_relativo"]
     por_tipo = (out.groupby("AutoPitchType", observed=True)
                 .agg(n=("delta_total", "size"), stuff_plus_mar=("stuff_plus_mar", "mean"),
-                     stuff_plus_harp=("stuff_plus_harp", "mean"), **{c: (c, "mean") for c in canales}))
+                     stuff_plus_harp=("stuff_plus_harp", "mean"), stuff_plus_harp_centrado=("stuff_plus_harp_centrado", "mean"),
+                     **{c: (c, "mean") for c in canales}))
     por_tipo.to_csv(CARPETA_SALIDAS / "delta_altitud_tipo.csv")
     por_pitcher = (out.groupby(GRUPO).agg(n=("delta_total", "size"), stuff_plus_mar=("stuff_plus_mar", "mean"),
-                                           stuff_plus_harp=("stuff_plus_harp", "mean"), delta_total=("delta_total", "mean"),
-                                           delta_relativo=("delta_relativo", "mean")))
+                                           stuff_plus_harp=("stuff_plus_harp", "mean"),
+                                           stuff_plus_harp_centrado=("stuff_plus_harp_centrado", "mean"),
+                                           delta_total=("delta_total", "mean"), delta_relativo=("delta_relativo", "mean")))
     por_pitcher.to_csv(CARPETA_SALIDAS / "delta_altitud_pitcher.csv")
     (out.groupby([GRUPO, "AutoPitchType"], observed=True)
      .agg(n=("delta_total", "size"), stuff_plus_mar=("stuff_plus_mar", "mean"), stuff_plus_harp=("stuff_plus_harp", "mean"),
+          stuff_plus_harp_centrado=("stuff_plus_harp_centrado", "mean"),
           delta_total=("delta_total", "mean"), delta_relativo=("delta_relativo", "mean"))
      .to_csv(CARPETA_SALIDAS / "delta_altitud_pitcher_tipo.csv"))
     anio = out["year"].astype(int)

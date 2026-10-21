@@ -14,6 +14,13 @@ dice que el movimiento por spin es proporcional a rho (Magnus), se reporta la EL
                                             beta = 0: la altitud no lo cambia)
 
 y el cambio en las unidades de x al pasar de nivel del mar (1.00) a Harp Helú (HARP_RHO).
+
+Además de ese gamma único por tipo (aditivo), se ajusta un segundo modelo donde el cambio crece con cuánto
+se mueve el pitcher (auditoría 2026-10-21: un solo gamma mueve en sentido contrario a los pitches atípicos):
+
+    x_{i,t} = alpha_i + (g0 + kappa * xm_i) * rho_t + error      xm_i = movimiento medio del pitcher × tipo
+
+`g0` y `kappa` son los que usa altitud_movimiento.py (forma exponencial, exactamente invertible).
 Intervalos de confianza al 95 % por bootstrap de PITCHERS (300 remuestreos): los pitches de un
 mismo pitcher no son independientes.
 
@@ -23,7 +30,8 @@ salida (beta ≈ 0). Si salieran ≠ 0, el efecto de IVB/HB estaría contaminado
 Solo temporadas de entrenamiento (la última temporada es el test sellado).
 
 Salida (fuera del repo): ../salidas/efecto_altitud.csv
-    tipo, variable, n_pitches, n_pitchers, gamma, beta, beta_lo, beta_hi, delta_harp, delta_lo, delta_hi
+    tipo, variable, n_pitches, n_pitchers, gamma, beta, beta_lo, beta_hi, delta_harp, delta_lo, delta_hi,
+    g0, kappa, kappa_lo, kappa_hi
 
 Uso:
     python efecto_altitud.py
@@ -32,10 +40,10 @@ import numpy as np
 import pandas as pd
 
 from limpieza import cargar_datos
+from altitud_movimiento import RHO_HARP as HARP_RHO     # densidad media de los juegos en Harp Helú (una sola fuente)
 from modelo_multiclase import CARPETA_SALIDAS, GRUPO, SEMILLA
 from particion import separar_test
 
-HARP_RHO = 0.828            # densidad media de los juegos en Harp Helú (estadios.parquet)
 VARIABLES = ["InducedVertBreak", "HorzBreak", "SpinRate", "RelSpeed"]
 MIN_PITCHES_CELDA = 20      # pitches mínimos de un pitcher × tipo para entrar
 N_BOOT = 300
@@ -66,7 +74,8 @@ def cargar_base():
 
 
 def sumas_por_pitcher(df, var):
-    """Sumas within por pitcher (para el bootstrap): S_xy, S_rr, n, sum_x, sum_rho. Una fila por pitcher."""
+    """Sumas within por pitcher (para el bootstrap), una fila por pitcher:
+    xy, rr, n, sum_x, sum_rho, y las que piden g0 y kappa: mxy = Σ xm·rd·xd, mrr = Σ xm·rd², mmrr = Σ xm²·rd²."""
     celdas = df.groupby([GRUPO, "AutoPitchType"], observed=True)
     d = df[[GRUPO, "AutoPitchType", var, "densidad_juego"]].copy()
     d["n_celda"] = celdas[var].transform("size")
@@ -74,20 +83,29 @@ def sumas_por_pitcher(df, var):
     celdas = d.groupby([GRUPO, "AutoPitchType"], observed=True)
     d["xd"] = d[var] - celdas[var].transform("mean")
     d["rd"] = d["densidad_juego"] - celdas["densidad_juego"].transform("mean")
+    d["xm"] = celdas[var].transform("mean")
     d["xy"] = d["xd"] * d["rd"]
     d["rr"] = d["rd"] ** 2
+    d["mxy"] = d["xm"] * d["xy"]
+    d["mrr"] = d["xm"] * d["rr"]
+    d["mmrr"] = d["xm"] ** 2 * d["rr"]
     d["x"] = d[var]
     d["rho"] = d["densidad_juego"]
     d["uno"] = 1.0
-    return d.groupby(GRUPO)[["xy", "rr", "uno", "x", "rho"]].sum()
+    return d.groupby(GRUPO)[["xy", "rr", "uno", "x", "rho", "mxy", "mrr", "mmrr"]].sum()
 
 
 def estimar(s):
-    """gamma, beta y delta a partir de las sumas (un array 2D: xy, rr, n, x, rho)."""
-    xy, rr, n, sx, sr = s.sum(axis=0)
+    """gamma, beta, delta, g0 y kappa a partir de las sumas (array 2D: xy, rr, n, x, rho, mxy, mrr, mmrr).
+
+    g0 y kappa: mínimos cuadrados de xd = (g0 + kappa·xm)·rd, con las ecuaciones normales
+    [Σrr Σmrr; Σmrr Σmmrr]·[g0, kappa] = [Σxy, Σmxy].
+    """
+    xy, rr, n, sx, sr, mxy, mrr, mmrr = s.sum(axis=0)
     gamma = xy / rr
     media_x, media_rho = sx / n, sr / n
-    return gamma, gamma * media_rho / media_x, gamma * (HARP_RHO - 1.0)
+    g0, kappa = np.linalg.lstsq(np.array([[rr, mrr], [mrr, mmrr]]), np.array([xy, mxy]), rcond=None)[0]
+    return gamma, gamma * media_rho / media_x, gamma * (HARP_RHO - 1.0), g0, kappa
 
 
 def main():
@@ -104,13 +122,14 @@ def main():
             if len(s) < 30:
                 continue
             arr = s.to_numpy()
-            gamma, beta, delta = estimar(arr)
+            gamma, beta, delta, g0, kappa = estimar(arr)
             boot = np.array([estimar(arr[rng.integers(0, len(arr), len(arr))]) for _ in range(N_BOOT)])
             lo, hi = np.percentile(boot, [2.5, 97.5], axis=0)
             filas.append({"tipo": tipo, "variable": var, "n_pitches": int(arr[:, 2].sum()), "n_pitchers": len(s),
                           "media_x": arr[:, 3].sum() / arr[:, 2].sum(),
                           "gamma": gamma, "beta": beta, "beta_lo": lo[1], "beta_hi": hi[1],
-                          "delta_harp": delta, "delta_lo": lo[2], "delta_hi": hi[2]})
+                          "delta_harp": delta, "delta_lo": lo[2], "delta_hi": hi[2],
+                          "g0": g0, "kappa": kappa, "kappa_lo": lo[4], "kappa_hi": hi[4]})
     tabla = pd.DataFrame(filas)
 
     CARPETA_SALIDAS.mkdir(exist_ok=True)
@@ -123,7 +142,8 @@ def main():
         t["Δ en Harp Helú vs mar (IC)"] = t.apply(
             lambda r: f"{r.delta_harp:6.2f} [{r.delta_lo:6.2f}, {r.delta_hi:6.2f}]", axis=1)
         print(f"--- {nombres[var]} (media del tipo = media_x; Δ en unidades de la variable) ---")
-        print(t[["tipo", "n_pitches", "n_pitchers", "media_x", "beta (IC 95%)", "Δ en Harp Helú vs mar (IC)"]]
+        t["g0, kappa (IC)"] = t.apply(lambda r: f"{r.g0:6.2f}, {r.kappa:5.2f} [{r.kappa_lo:5.2f}, {r.kappa_hi:5.2f}]", axis=1)
+        print(t[["tipo", "n_pitches", "n_pitchers", "media_x", "beta (IC 95%)", "Δ en Harp Helú vs mar (IC)", "g0, kappa (IC)"]]
               .round(2).to_string(index=False))
         print()
     print(f"Guardado: {CARPETA_SALIDAS / 'efecto_altitud.csv'}")

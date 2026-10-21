@@ -60,12 +60,14 @@ def agregar_arsenal(df):
 def diferencias_en_aire(df, rho_destino):
     """ivb_diff_vs_fb y hb_diff_vs_fb de cada pitch si él Y su recta se vieran con `rho_destino`.
 
-    Desde nivel del mar (IVB_n, HB_n): diff_destino = diff_mar + (gamma_pitch − gamma_recta)·(rho_destino − 1).
+    Parte del movimiento a nivel del mar del pitch (IVB_n, HB_n) y del de su recta (el del pitch menos la diferencia
+    guardada) y lleva cada uno a `rho_destino` con SU tipo (el ajuste ya no es aditivo: depende de cuánto se mueve).
     La velocidad, el release y el uso no cambian con el aire.
     """
-    ceros = np.zeros(len(df))
     tipo_p = df["AutoPitchType"].astype(str)
     tipo_r = df["fb_tipo"].fillna("TODOS").astype(str)
-    ivb_p, hb_p = ajustar_movimiento(ceros, ceros, RHO_MAR, rho_destino, tipo=tipo_p)
-    ivb_r, hb_r = ajustar_movimiento(ceros, ceros, RHO_MAR, rho_destino, tipo=tipo_r)
-    return df["ivb_diff_vs_fb"].to_numpy() + (ivb_p - ivb_r), df["hb_diff_vs_fb"].to_numpy() + (hb_p - hb_r)
+    ivb_p, hb_p = ajustar_movimiento(df["IVB_n"].to_numpy(), df["HB_n"].to_numpy(), RHO_MAR, rho_destino, tipo=tipo_p)
+    fb_ivb_mar = df["IVB_n"].to_numpy() - df["ivb_diff_vs_fb"].to_numpy()
+    fb_hb_mar = df["HB_n"].to_numpy() - df["hb_diff_vs_fb"].to_numpy()
+    ivb_r, hb_r = ajustar_movimiento(fb_ivb_mar, fb_hb_mar, RHO_MAR, rho_destino, tipo=tipo_r)
+    return ivb_p - ivb_r, hb_p - hb_r

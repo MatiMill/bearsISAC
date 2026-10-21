@@ -26,18 +26,21 @@ import pandas as pd
 
 from limpieza import RUTA
 from objetivo import CLASES
+from particion import MODO_FINAL
 
 CARPETA_SALIDAS = RUTA.parent / "salidas"
 COLUMNAS = ["game_anon_id", "year", "Inning", "Top/Bottom", "batter_anon_id",
             "Outs", "Balls", "Strikes", "PitchCall", "KorBB", "play_result",
-            "RunsScored", "OutsOnPlay"]
+            "RunsScored", "OutsOnPlay", "hit_type"]
 
 
 # ---------- PASO 0: datos crudos de entrenamiento, en orden ----------
 def cargar_crudos():
     df = pd.read_parquet(RUTA, columns=COLUMNAS)   # el orden de las filas es cronológico
     temporada_test = df["year"].max()
-    df = df[(df["year"] != temporada_test) & (df["Outs"] <= 2)].reset_index(drop=True)
+    if not MODO_FINAL:                      # en modo final la temporada sellada ya se validó y entra
+        df = df[df["year"] != temporada_test]
+    df = df[df["Outs"] <= 2].reset_index(drop=True)
     for col in ["Outs", "Balls", "Strikes", "RunsScored"]:
         df[col] = df[col].astype(int)
     # Media entrada = un juego, una entrada, alta o baja
@@ -95,11 +98,13 @@ def valor_de_turnos(df, turnos, re):
 
     # Tipo de evento y conteo del pitch que terminó cada turno
     finales = df[df["es_final"]].drop_duplicates("turno", keep="last").set_index("turno")
+    # HitByPitch primero: el PitchCall manda (22 pitches traen KorBB = Walk con PitchCall = HitByPitch)
     turnos["evento"] = pd.Series(np.select(
-        [finales["KorBB"] == "Strikeout", finales["KorBB"] == "Walk", finales["PitchCall"] == "HitByPitch"],
-        ["Strikeout", "Walk", "HitByPitch"],
+        [finales["PitchCall"] == "HitByPitch", finales["KorBB"] == "Strikeout", finales["KorBB"] == "Walk"],
+        ["HitByPitch", "Strikeout", "Walk"],
         default=finales["play_result"].astype(str)), index=finales.index)
     turnos["pitch_final"] = finales["PitchCall"].astype(str)
+    turnos["es_bunt"] = (finales["hit_type"].astype(str) == "Bunt").reindex(turnos.index, fill_value=False).astype(bool)
     turnos["balls_final"] = finales["Balls"]
     turnos["strikes_final"] = finales["Strikes"]
     return turnos
@@ -117,20 +122,46 @@ def valor_por_conteo(df, turnos):
 
 
 # ---------- PASO 5: RV_k(b, s) ----------
-def tabla_rv(v, turnos, valores_evento):
-    v_bb = valores_evento.loc["Walk", "valor"]        # valor promedio de una base por bolas
-    v_k = valores_evento.loc["Strikeout", "valor"]    # valor promedio de un ponche
-    en_juego = (turnos[turnos["pitch_final"] == "InPlay"]
-                .groupby(["balls_final", "strikes_final"])["valor"].mean())
+MIN_TURNOS_CONTEO = 50     # turnos mínimos para usar el valor específico de un conteo (si no, el promedio de la liga)
+
+
+def _valor_por_conteo_final(turnos, evento, columna):
+    """Valor promedio del `evento` según `columna` (balls_final o strikes_final); promedio de la liga si hay pocos turnos."""
+    t = turnos[turnos["evento"] == evento]
+    g = t.groupby(columna)["valor"].agg(["mean", "size"])
+    return {k: (r["mean"] if r["size"] >= MIN_TURNOS_CONTEO else t["valor"].mean()) for k, r in g.iterrows()}
+
+
+def tabla_rv(v, turnos, valores_evento, df):
+    """RV_k(b, s). Tres detalles (auditoría 2026-10-21):
+
+    - `in_play` NO incluye los bunts: la clase in_play del modelo los excluye (limpieza.py), así que su precio
+      tampoco debe mezclarlos (los bunts siguen en V y RE: son turnos reales).
+    - La 4.ª bola se paga con el valor de las bases por bolas que terminaron en ESE conteo (3-s) y el 3.er strike
+      con el de los ponches que terminaron en b-2, no con el promedio de toda la liga (cae a ese promedio si hay
+      < MIN_TURNOS_CONTEO turnos).
+    - La clase `ball` incluye los pelotazos (objetivo.py): su precio mezcla el de una bola con el de un pelotazo,
+      ponderado por la fracción de pelotazos entre los pitches de clase ball en ese conteo.
+    """
+    v_bb = _valor_por_conteo_final(turnos, "Walk", "strikes_final")       # base por bolas, por strikes (siempre 3 bolas)
+    v_k = _valor_por_conteo_final(turnos, "Strikeout", "balls_final")     # ponche, por bolas (siempre 2 strikes)
+    v_hbp = valores_evento.loc["HitByPitch", "valor"]
+    sin_bunt = turnos[(turnos["pitch_final"] == "InPlay") & ~turnos["es_bunt"]]
+    en_juego = sin_bunt.groupby(["balls_final", "strikes_final"])["valor"].mean()
+
+    es_bola = df["PitchCall"].isin(["BallCalled", "BallinDirt", "HitByPitch"])
+    frac_hbp = (df[es_bola].assign(hbp=lambda d: d["PitchCall"] == "HitByPitch")
+                .groupby(["Balls", "Strikes"])["hbp"].mean())
 
     filas = []
     for b in range(4):
         for s in range(3):
             actual = v[(b, s)]
-            bola = (v_bb if b == 3 else v[(b + 1, s)]) - actual      # 4a bola = base por bolas
-            strike = (v_k if s == 2 else v[(b, s + 1)]) - actual     # 3er strike = ponche
+            bola = (v_bb[s] if b == 3 else v[(b + 1, s)]) - actual   # 4a bola = base por bolas
+            strike = (v_k[b] if s == 2 else v[(b, s + 1)]) - actual  # 3er strike = ponche
+            q = float(frac_hbp.get((b, s), 0.0))
             precios = {
-                "ball": bola,
+                "ball": (1 - q) * bola + q * (v_hbp - actual),
                 "called_strike": strike,
                 "whiff": strike,
                 "foul": 0.0 if s == 2 else strike,                    # foul con 2 strikes no cambia nada
@@ -173,7 +204,7 @@ def main():
     tabla_v = pd.DataFrame([{"balls": b, "strikes": s, "V": val} for (b, s), val in v.items()])
     print(tabla_v.pivot(index="balls", columns="strikes", values="V").round(3).to_string())
 
-    rv = tabla_rv(v, turnos, valores_evento)
+    rv = tabla_rv(v, turnos, valores_evento, df)
     print("\nPaso 5. Precio de cada resultado RV_k (+ = bueno para el bateador):")
     print(rv.pivot_table(index=["balls", "strikes"], columns="outcome_class", values="rv")[CLASES].round(3).to_string())
 

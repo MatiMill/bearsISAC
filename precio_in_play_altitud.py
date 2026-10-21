@@ -43,7 +43,8 @@ def turnos_en_juego():
     turnos = valor_de_turnos(df, turnos, carreras_esperadas(turnos))
     primero = df.groupby("turno").agg(game_anon_id=("game_anon_id", "first"), batter=("batter_anon_id", "first"))
     t = turnos.join(primero)
-    t = t[t["terminado"] & (t["pitch_final"] == "InPlay")].copy()
+    # sin bunts: la clase in_play del modelo los excluye (limpieza.py), igual que el precio de run_values.tabla_rv
+    t = t[t["terminado"] & (t["pitch_final"] == "InPlay") & ~t["es_bunt"]].copy()
     t = agregar_densidad(t.reset_index())
     columnas = ["valor", "balls_final", "strikes_final", "outs", "corredores", "densidad_juego", "batter"]
     sin_dato = t[columnas].isna().any(axis=1)

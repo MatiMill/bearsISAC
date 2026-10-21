@@ -220,7 +220,7 @@ Location+   = 100 + 10 · z( −(xRV − xRV promedio de ese conteo) )      por 
 - Mejora sobre el baseline por conteo: **29.2 %** (Stuff+: 1.0 %). Lo más fuerte es ball (52.7 %) y called_strike (24.3 %): la ubicación explica bola/strike y la física explica el whiff.
 - Calibración: menos de 1 punto de diferencia en todos los conteos y menos de 0.3 en todas las zonas.
 - En 3-0, dentro de la zona ≈ 114 y fuera 89; en 0-2, el centro de la zona es lo peor (97) y las esquinas bajas lo mejor (101–102).
-- A nivel pitcher: Location+ vs tasa de bolas r = −0.74; Location+ vs Stuff+ r = 0.04 (miden cosas distintas). Estabilidad de 2024 a 2025: Location+ r = 0.62, Stuff+ r = 0.78.
+- A nivel pitcher: Location+ vs tasa de bolas r = −0.74; Location+ vs Stuff+ v3 r = −0.03 (miden cosas distintas). Estabilidad de 2024 a 2025: Location+ r = 0.62, Stuff+ v3 r = 0.78.
 
 ## Pitching+ (`pitching_plus.py`, `scoring_pitching.py`)
 Mide **el lanzamiento completo**. Es un **tercer modelo entrenado desde cero**, no un promedio de Stuff+ y Location+: el valor de la ubicación depende del pitch (una recta con mucho IVB arriba de la zona es buena; un sinker arriba es malo), y un promedio no puede capturar esa interacción. Además, las escalas de los dos no se pueden sumar. El modelo ve las dos cosas a la vez y descubre esas interacciones solo.
@@ -237,7 +237,7 @@ Pitching+  = 100 + 10 · z( −(xRV − xRV promedio de ese conteo) )      por t
 
 **Resultados actuales** (entrenamiento 2024–2025, validación cruzada por pitcher, `min_child_samples = 1000`; corridos por Ricardo, ver `docs/decisions.md`):
 - Mejora sobre el baseline por conteo: **30.3 %** (Stuff+: 1.0 %, Location+: 29.2 %). Casi todo viene de la ubicación: ball 53.6 % (en Stuff+ es 0.02 %). Calibración general ≤ 0.04 puntos; por conteo, máximo 1.13 (en 3-0).
-- Pitching+ es la ejecución total, **dominada por la ubicación**: correlaciona con Location+ (r = 0.87) y menos con Stuff+ (r = 0.42), mientras que Stuff+ y Location+ casi no se relacionan entre sí (r = 0.04).
+- Pitching+ es la ejecución total, **dominada por la ubicación**: correlaciona con Location+ (r = 0.87) y menos con Stuff+ v3 (r = 0.28), mientras que Stuff+ y Location+ casi no se relacionan entre sí (r = 0.04).
 - A nivel pitcher: Pitching+ vs tasa de bolas r = −0.73 y vs tasa de whiff r = +0.27: combina los dos canales. Estabilidad de 2024 a 2025: r = 0.60 (Stuff+: 0.78, Location+: 0.62).
 - No es "mejor" que Stuff+: responde otra pregunta. Stuff+ mide la calidad intrínseca de la bola; Pitching+, qué tan bien salió ese lanzamiento.
 
@@ -267,9 +267,9 @@ Solo usa 2024–2025: la última temporada es el test sellado. Limitación: se s
 ## Altitud en los scores (Stuff+ v3 y contrafactual)
 Meter la densidad como una columna más de LightGBM no basta: hay ~20 estadios, Harp Helú es la casa de los Diablos (equipo y estadio se mezclan) y el movimiento medido ya viene reducido por el aire. Por eso la altitud entra por **tres canales**, cada uno medido por su lado:
 
-1. **Movimiento.** `efecto_altitud.py` compara al **mismo pitcher con el mismo tipo de pitch** en aires distintos (482 mil pitches, 766 pitchers). En Harp Helú la recta pierde **3.7 pulgadas de IVB**; el spin no cambia. El movimiento cae **más que proporcionalmente** a la densidad (elasticidad ≈ 1.3, no 1.0 como dice la física simple), así que usamos el efecto medido. `modelo_stuff_*` entrena con el movimiento llevado a nivel del mar, para que Stuff+ califique al pitcher y no al estadio (en v1, los pitches de Harp Helú salían con 97 vs. 100 en el resto; ahora 99.1 vs. 100.1).
-2. **Resultado.** `densidad_juego` entra al modelo para que aprenda cómo cambian whiff, foul y bola en juego con el aire. **Es el canal menos validado:** en el park holdout no mejoró de forma consistente.
-3. **Precio de la bola en juego.** Un batazo en juego cuesta **+0.065 carreras más** en Harp Helú que a nivel del mar (mismo bateador, `precio_in_play_altitud.py`).
+1. **Movimiento.** `efecto_altitud.py` compara al **mismo pitcher con el mismo tipo de pitch** en aires distintos (482 mil pitches, 766 pitchers). En Harp Helú la recta pierde **3.7 pulgadas de IVB**; el spin no cambia. El movimiento cae **más que proporcionalmente** a la densidad (elasticidad ≈ 1.3, no 1.0 como dice la física simple) y el cambio crece con cuánto se mueve el pitch, así que usamos el efecto medido (`dx/dρ = g0 + κ·x`, una fórmula exacta e invertible; `altitud_movimiento.py`). `modelo_stuff_*` entrena con el movimiento llevado a nivel del mar, para que Stuff+ califique al pitcher y no al estadio (en v1, los pitches de Harp Helú salían con 97 vs. 100 en el resto; ahora 99.3 vs. 100.1).
+2. **Resultado.** `densidad_juego` entra al modelo para que aprenda cómo cambian whiff, foul y bola en juego con el aire. **Es el canal menos validado:** en el park holdout no mejoró de forma consistente. Ojo: el modelo se entrena con movimiento a nivel del mar más `densidad_juego`, así que en el escenario Harp Helú la densidad ya trae el costo del movimiento perdido y **no se baja el movimiento otra vez** (hacerlo contaba la pérdida dos veces; auditoría 2026-10-21).
+3. **Precio de la bola en juego.** Un batazo en juego cuesta **+0.062 carreras más** en Harp Helú que a nivel del mar (mismo bateador, `precio_in_play_altitud.py`).
 
 **Stuff+ v3 (oficial)** agrega arsenal (diferencias contra la recta primaria, que con el movimiento normalizado no dependen de la altitud): mejora 1.25 % sobre el baseline por conteo (v1: 1.00 %), y gana a v2 en los 5 folds.
 
@@ -279,17 +279,17 @@ Meter la densidad como una columna más de LightGBM no basta: hay ~20 estadios, 
 
 | Tipo | Movimiento | Resultado | Bola en juego | **Total** | **Relativo al promedio** |
 |---|---|---|---|---|---|
-| Four-Seam | −6.9 | −5.0 | −19.2 | −31.0 | **−5.0** |
-| Sinker | −2.2 | −4.7 | −22.7 | −29.5 | −3.5 |
-| Changeup | −0.8 | −3.0 | −19.5 | −23.3 | +2.7 |
-| Slider | −1.4 | −2.0 | −17.9 | −21.3 | +4.7 |
-| Curveball | −0.8 | −1.0 | −15.7 | −17.5 | +8.6 |
+| Four-Seam | −6.9 | −0.2 | −17.2 | −24.3 | **−2.4** |
+| Sinker | −2.9 | −2.5 | −21.0 | −26.4 | −4.5 |
+| Changeup | −1.1 | −1.8 | −18.3 | −21.1 | +0.8 |
+| Slider | −1.4 | −0.1 | −16.7 | −18.1 | +3.8 |
+| Curveball | −1.7 | +0.9 | −14.6 | −15.3 | +6.6 |
 
-Un pitch promedio pierde ≈ 26 puntos en Harp Helú, casi todo por el precio de la bola en juego (un parque con mucha carrera, efecto casi igual para todos). Lo que distingue a un tipo de otro es el cambio **relativo**: las rectas pierden más que el promedio (sobre todo por movimiento) y los rompientes pierden menos.
+Un pitch promedio pierde ≈ 22 puntos en Harp Helú, casi todo por el precio de la bola en juego (un parque con mucha carrera, efecto casi igual para todos). Lo que distingue a un tipo de otro es el cambio **relativo**: las rectas pierden más que el promedio (sobre todo por movimiento) y los rompientes pierden menos.
 
 **Límites:** un solo efecto por tipo de pitch; un solo precio para todos los batazos (sin modelo de contacto, así que no se prueba que los pitchers de rolling pierdan menos); el efecto del bateo compara al mismo bateador pero no controla clima ni pitcher; la eficiencia de spin (H4) no se modeló. Detalle y números en `docs/decisions.md` (Paso 10).
 
-**A quién contratar (`contratacion.py`).** Rating = ejecución (Pitching+, encogido hacia el promedio cuando hay pocos pitches) + ajuste por altura, en carreras por 100 pitches contra un pitcher promedio. Se probó con datos reales: el ranking hecho con 2024 acertó en 2025 de forma **moderada** (r = 0.39 con K−BB%, 0.25 con carreras por turno; los 20 primeros superaron al promedio y a los 20 últimos), así que sirve para una **lista corta**, no para garantizar un nombre. Hallazgo: Stuff+ solo casi no predice el resultado del año siguiente; la base del ranking es Pitching+. El ajuste por altura sale del modelo y no se pudo validar contra resultados reales.
+**A quién contratar (`contratacion.py`).** Rating = ejecución (Pitching+, encogido hacia un promedio previo cuando hay pocos pitches; la confiabilidad se mide con mitades de juegos) + ajuste por altura, en carreras por 100 pitches contra un pitcher promedio. Se probó con datos reales: el ranking hecho con 2024 acertó en 2025 de forma **moderada** (r = 0.38 con K−BB%, 0.24 con carreras por turno; los 20 primeros superaron al promedio y a los 20 últimos), así que sirve para una **lista corta**, no para garantizar un nombre. Hallazgo: Stuff+ solo casi no predice el resultado del año siguiente; la base del ranking es Pitching+. El ajuste por altura sale del modelo y no se pudo validar contra resultados reales.
 
 ## Estadios y altitud: cómo funciona
 Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimos así:
@@ -313,3 +313,20 @@ Los datos del ISAC no dicen en qué estadio se jugó cada juego. Lo reconstruimo
 - Hacer `git pull` antes de empezar a trabajar.
 - Nunca subir archivos de datos (`.parquet`, `.csv`). El `.gitignore` los bloquea (salvo `config/*.csv`), igual que `modelos/`, `salidas/` y `graphify-out/`; aun así, revisar `git status` antes de cada commit.
   
+
+## Dashboard (Streamlit)
+Tablero de decisión para los Diablos Rojos, pensado para usarse sin leer código: navegación lateral, texto de ayuda en cada número (signo de interrogación) y una nota "cómo leerlo" en cada pantalla. Usa `dashboard.py` y `simulador_altitud.py` y necesita las salidas de `../salidas/` y `../modelos/`:
+
+```
+streamlit run dashboard.py
+```
+
+| Sección | Qué responde |
+|---|---|
+| Resumen | La pregunta, cuatro números clave, lo que encontramos y la lista corta recomendada |
+| Candidatos | A quién contratar: filtros (muestra mínima, pitch principal, Diablos), gráfica de rating con su margen de incertidumbre, tabla, perfil de cada pitcher y descarga en CSV |
+| Laboratorio de pitches | El mismo pitch a nivel del mar y en Harp Helú (mano, aire de la medición, recta principal), con la pérdida separada por canal y el mapa de movimiento |
+| Efecto de la altura | Qué tipos de pitch pierden más o menos que el promedio, con el detalle por canal |
+| Metodología y glosario | Definiciones, cómo se construye, calidad de los modelos, validación del ranking y límites |
+
+Los scores de pitcher (Stuff+, Location+, Pitching+) se muestran en escala **entre pitchers** (100 = pitcher promedio, 110 = una desviación estándar mejor); los scores por pitch suelto usan otra escala (ver `docs/decisions.md`, Paso 8).

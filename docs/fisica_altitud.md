@@ -68,10 +68,10 @@ $$\text{IVB}_{\text{destino}} \approx \text{IVB}_{\text{origen}}\cdot\frac{\rho_
 
 El Paso 3 se hizo (`efecto_altitud.py`): mismo pitcher y tipo, aire distinto, 482,365 pitches y 766 pitchers, IC por bootstrap de pitchers.
 
-- **El movimiento SÍ baja con la densidad, pero MÁS que proporcionalmente:** elasticidad β ≈ 1.3 para IVB (1.6 para HB), no 1.0. Recta Four-Seam: **−3.71 in de IVB** y −2.40 de HB en Harp Helú (ρ = 0.828) frente a nivel del mar.
+- **El movimiento SÍ baja con la densidad, pero MÁS que proporcionalmente:** elasticidad β ≈ 1.3 para IVB (1.6 para HB), no 1.0. Recta Four-Seam: **−3.65 in de IVB** y −2.36 de HB en Harp Helú (ρ = 0.830) frente a nivel del mar (re-corrido el 2026-10-21; el 2026-10-14 salía −3.71 y −2.40 con ρ = 0.828).
   Posibles razones (sin probar): `densidad_juego` está definida con el arrastre y mezcla temperatura; el tiempo de vuelo y el coeficiente de sustentación también cambian con el aire.
-- **El spin no cambia** (β = 0.00 [−0.01, 0.01]): lo pone la mano, como suponíamos (C_L constante). La velocidad de salida casi tampoco (+0.21 mph en Harp Helú). Son los controles que dicen que el efecto de IVB/HB es del aire y no de otra cosa.
-- Por eso el código **no usa** el reescalado IVB·ρ_destino/ρ_origen de arriba, sino el efecto medido por tipo: `x_destino = x_origen + γ_tipo·(ρ_destino − ρ_origen)` (`altitud_movimiento.py`).
+- **El spin no cambia** (β = 0.00 [−0.01, 0.01]): lo pone la mano, como suponíamos (C_L constante). La velocidad de salida casi tampoco (+0.20 mph en Harp Helú). Son los controles que dicen que el efecto de IVB/HB es del aire y no de otra cosa.
+- Por eso el código **no usa** el reescalado IVB·ρ_destino/ρ_origen de arriba, sino el efecto medido por tipo, que además **crece con cuánto se mueve el pitch**: `dx/dρ = g0 + κ·x`, es decir `x_destino = (x_origen + g0/κ)·exp(κ·(ρ_destino − ρ_origen)) − g0/κ` (`altitud_movimiento.py`; exactamente invertible, y con κ ≈ 0 se reduce a la forma aditiva `x + γ·Δρ`). Un γ único por tipo movía en sentido contrario al físico a los pitches atípicos (p. ej. 22 % de los cutters en HB). Sweeper usa el efecto del Slider y Splitter el del Changeup (pocos pitchers).
 - Para Fran: pendiente explicar físicamente por qué β > 1 y por qué la curva y el slider cambian de signo en HB (menos movimiento hacia el guante).
 
 ---
@@ -83,7 +83,7 @@ El arrastre también es ∝ densidad:
 $$F_{\text{drag}} = \tfrac{1}{2}\,C_D\,\rho\,A\,v^2$$
 
 Dos consecuencias:
-- **Medición de la densidad:** `estadios.py` ajusta, por juego, el coeficiente de frenado de las rectas `k = a_{y0}/v^2 ∝ ρ` y define `densidad_juego = k / referencia` (referencia = mediana de los juegos "No Altitude" ⇒ ≈ 1.00 a nivel del mar, ≈ 0.82 en Harp Helú: mediana medida 0.823 en 123 juegos). La medida sale un poco más alta que la fórmula (0.80) porque la referencia no está exactamente al nivel del mar ni a 15 °C; `altitud.py` calibra esa diferencia con una recta (R² = 0.96). Como se infiere del frenado real, **captura temperatura y humedad** del día automáticamente.
+- **Medición de la densidad:** `estadios.py` ajusta, por juego, el coeficiente de frenado de las rectas `k = a_{y0}/v^2 ∝ ρ` y define `densidad_juego = k / referencia` (referencia = mediana de los juegos "No Altitude" ⇒ ≈ 1.00 a nivel del mar, ≈ 0.83 en Harp Helú: media de las temporadas de entrenamiento 0.830 en 123 juegos; la referencia usa solo las temporadas de entrenamiento desde el 2026-10-21). La medida sale un poco más alta que la fórmula (0.80) porque la referencia no está exactamente al nivel del mar ni a 15 °C; `altitud.py` calibra esa diferencia con una recta (R² = 0.96). Como se infiere del frenado real, **captura temperatura y humedad** del día automáticamente.
 - **Bola bateada:** menos arrastre en altura → la bola vuela más lejos → el contacto (`in_play`) cuesta más carreras. Ese canal lo **aprende el modelo** con `densidad_juego` como feature (y lo afinará el modelo de contacto, Paso 7).
 
 Nota: la "velocidad que pierde la bola de camino al plato" (`ZoneSpeed`, `SpeedDrop`) **se excluye a propósito** de Stuff+ porque filtra la altitud de forma escondida; por eso ese sub-efecto de la velocidad no se modela directamente.
@@ -124,4 +124,4 @@ Cuando encuentres algo que confirme, matice o contradiga estos supuestos, anóta
 |---|---|---|
 | Densidad vs. altitud (sección 2.1) | `altitud.py` (`densidad_esperada`) | Traducir densidad medida ↔ altitud real de los estadios |
 | `densidad_juego` medida del frenado (sección 4) | `estadios.py` | Feature continuo de altitud por juego |
-| Reescalado IVB/HB ∝ ρ (sección 3) | `scoring.py` / módulo de altitud (Paso 10, pendiente) | Contrafactual Harp Helú vs. nivel del mar |
+| Ajuste de IVB/HB con la densidad (sección 3, efecto medido) | `efecto_altitud.py` (estimación), `altitud_movimiento.py` (`ajustar_movimiento`, `normalizar_movimiento`), `contrafactual_altitud.py` / `simulador_altitud.py` | Contrafactual Harp Helú vs. nivel del mar |

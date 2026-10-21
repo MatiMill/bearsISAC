@@ -24,7 +24,7 @@ import pandas as pd
 from limpieza import cargar_datos
 from objetivo import agregar_resultado
 from particion import separar_test
-from scoring import CARPETA_SALIDAS, a_escala_plus, calcular_xrv
+from scoring import CARPETA_SALIDAS, a_escala_pitcher, a_escala_plus, calcular_xrv, cargar_stuff_oficial
 from zona import NOMBRES_ZONA, preparar_ubicacion
 
 MIN_PITCHES = 200       # pitchers con al menos esto para las revisiones a nivel pitcher
@@ -73,6 +73,7 @@ def main():
     por_tipo.to_csv(CARPETA_SALIDAS / "scores_location_pitcher_tipo.csv", index=False)
     por_pitcher = (scores.groupby("pitcher_anon_id")                  # ponderado por uso = media de sus pitches
                    .agg(location_plus=("location_plus", "mean"), n=("location_plus", "size")).reset_index())
+    por_pitcher["location_plus_pitcher"] = a_escala_pitcher(por_pitcher["location_plus"], por_pitcher["n"])   # 100 ± 10 entre pitchers
     por_pitcher.to_csv(CARPETA_SALIDAS / "scores_location_pitcher.csv", index=False)
 
     # ---- Sanity 1: por construcción, media ~100 y sd ~10 en cada temporada
@@ -98,14 +99,14 @@ def main():
           f"Location+ vs tasa de bolas: r = {pb['loc'].corr(pb['ball']):.3f} (debe ser negativa)")
 
     # ---- Sanity 5: Location+ vs Stuff+ (miden cosas distintas) y estabilidad entre temporadas
-    stuff = pd.read_parquet(CARPETA_SALIDAS / "scores_pitch.parquet")[["PitchUID", "stuff_plus"]]
+    stuff, nombre_stuff = cargar_stuff_oficial()
     ambos = scores.merge(stuff, on="PitchUID", how="inner", validate="one_to_one")
     pp = (ambos.groupby("pitcher_anon_id")
           .agg(loc=("location_plus", "mean"), stuff=("stuff_plus", "mean"), n=("stuff_plus", "size")))
     pp = pp[pp["n"] >= MIN_PITCHES]
-    print(f"\nSanity 5 - correlación Location+ vs Stuff+ (nivel pitcher, {len(pp)} pitchers): "
+    print(f"\nSanity 5 - correlación Location+ vs {nombre_stuff} (nivel pitcher, {len(pp)} pitchers): "
           f"r = {pp['loc'].corr(pp['stuff']):.3f}")
-    for col, nombre in [("location_plus", "Location+"), ("stuff_plus", "Stuff+")]:
+    for col, nombre in [("location_plus", "Location+"), ("stuff_plus", nombre_stuff)]:
         r, n = estabilidad_entre_temporadas(ambos, col)
         print(f"   estabilidad {nombre} 2024 -> 2025 ({n} pitchers con >= {MIN_PITCHES} en cada año): r = {r:.3f}")
 

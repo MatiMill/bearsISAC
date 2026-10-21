@@ -102,6 +102,31 @@ def a_escala_plus(s, year):
     return (100 + 10 * (d["s"] - g.transform("mean")) / g.transform("std")).to_numpy()
 
 
+MIN_PITCHES_ESCALA = 300    # pitchers con al menos esto definen la media y la sd de la escala por pitcher
+
+
+def a_escala_pitcher(medias, n, min_n=MIN_PITCHES_ESCALA):
+    """Score de PITCHER en escala 100 + 10z entre pitchers (100 = pitcher promedio, 110 = una sd mejor).
+
+    Los scores por pitch (a_escala_plus) tienen sd 10 entre PITCHES; el promedio de un pitcher varía mucho menos
+    (Location+ y Pitching+: sd ≈ 0.9 entre pitchers con muestra, porque solo ≈ 1 % de la varianza entre pitches es
+    del pitcher: el resto es dónde cayó cada pitch). Para comparar pitchers se reescala con la media y la sd de los
+    pitchers con >= `min_n` pitches (cada pitcher cuenta una vez). No cambia el orden de los pitchers.
+    """
+    medias = pd.Series(np.asarray(medias, dtype=float))
+    elegibles = medias[np.asarray(n) >= min_n]
+    return (100 + 10 * (medias - elegibles.mean()) / elegibles.std()).to_numpy()
+
+
+def cargar_stuff_oficial():
+    """Stuff+ oficial por pitch para las revisiones cruzadas: v3 a nivel del mar si ya se corrió, si no v1 (con su nombre)."""
+    ruta = CARPETA_SALIDAS / "scores_stuff_altitud_pitch.parquet"
+    if ruta.exists():
+        return (pd.read_parquet(ruta, columns=["PitchUID", "stuff_plus_mar"]).rename(columns={"stuff_plus_mar": "stuff_plus"}),
+                "Stuff+ v3")
+    return pd.read_parquet(CARPETA_SALIDAS / "scores_pitch.parquet", columns=["PitchUID", "stuff_plus"]), "Stuff+ v1"
+
+
 def main():
     datos = agregar_resultado(cargar_datos()).reset_index(drop=True)
     entrenamiento, _test = separar_test(datos)
@@ -109,7 +134,8 @@ def main():
 
     xrv = calcular_xrv(df12, "neutral")                          # PitchUID, pitcher_anon_id, xrv_stuff
     meta = entrenamiento[["PitchUID", "AutoPitchType", "year", "RelSpeed", "SpinRate", "outcome_class"]]
-    scores = xrv.merge(meta, on="PitchUID", how="left")
+    scores = xrv.merge(meta, on="PitchUID", how="left", validate="one_to_one")
+    assert scores["year"].notna().all(), "hay pitches de las predicciones que no están en el entrenamiento"
     scores["stuff_plus"] = a_escala_plus(-scores["xrv_stuff"], scores["year"])
     scores["es_whiff"] = (scores["outcome_class"] == "whiff").astype(int)
 
@@ -122,6 +148,7 @@ def main():
     por_tipo.to_csv(CARPETA_SALIDAS / "scores_pitcher_tipo.csv", index=False)
     por_pitcher = (scores.groupby("pitcher_anon_id")                      # ponderado por uso = media de sus pitches
                    .agg(stuff_plus=("stuff_plus", "mean"), n=("stuff_plus", "size")).reset_index())
+    por_pitcher["stuff_plus_pitcher"] = a_escala_pitcher(por_pitcher["stuff_plus"], por_pitcher["n"])   # 100 ± 10 entre pitchers
     por_pitcher.to_csv(CARPETA_SALIDAS / "scores_pitcher.csv", index=False)
 
     # ---- Sanity 1: por construccion, media ~100 y sd ~10 en cada temporada

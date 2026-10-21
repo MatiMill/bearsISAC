@@ -24,7 +24,7 @@ import pandas as pd
 from limpieza import cargar_datos
 from objetivo import agregar_resultado
 from particion import separar_test
-from scoring import CARPETA_SALIDAS, a_escala_plus, calcular_xrv
+from scoring import CARPETA_SALIDAS, a_escala_pitcher, a_escala_plus, calcular_xrv, cargar_stuff_oficial
 from zona import preparar_ubicacion
 
 MIN_PITCHES = 200       # pitchers con al menos esto para las revisiones a nivel pitcher
@@ -62,6 +62,7 @@ def main():
     por_tipo.to_csv(CARPETA_SALIDAS / "scores_pitching_pitcher_tipo.csv", index=False)
     por_pitcher = (scores.groupby("pitcher_anon_id")                  # ponderado por uso = media de sus pitches
                    .agg(pitching_plus=("pitching_plus", "mean"), n=("pitching_plus", "size")).reset_index())
+    por_pitcher["pitching_plus_pitcher"] = a_escala_pitcher(por_pitcher["pitching_plus"], por_pitcher["n"])   # 100 ± 10 entre pitchers
     por_pitcher.to_csv(CARPETA_SALIDAS / "scores_pitching_pitcher.csv", index=False)
 
     # ---- Sanity 1: media ~100 / sd ~10 por temporada
@@ -84,7 +85,7 @@ def main():
           f"vs tasa de whiff r = {pp['pit'].corr(pp['whiff']):.3f} (pos)")
 
     # ---- Sanity 4 (guía §4): debe correlacionar con Stuff+ y con Location+
-    stuff = pd.read_parquet(CARPETA_SALIDAS / "scores_pitch.parquet")[["PitchUID", "stuff_plus"]]
+    stuff, nombre_stuff = cargar_stuff_oficial()
     loc = pd.read_parquet(CARPETA_SALIDAS / "scores_location_pitch.parquet")[["PitchUID", "location_plus"]]
     tri = (scores[["PitchUID", "pitcher_anon_id", "pitching_plus"]]
            .merge(stuff, on="PitchUID", how="inner").merge(loc, on="PitchUID", how="inner"))
@@ -92,10 +93,10 @@ def main():
          .agg(pit=("pitching_plus", "mean"), stuff=("stuff_plus", "mean"),
               loc=("location_plus", "mean"), n=("pitching_plus", "size")))
     g = g[g["n"] >= MIN_PITCHES]
-    print(f"\nSanity 4 - Pitching+ vs Stuff+ r = {g['pit'].corr(g['stuff']):.3f}; "
+    print(f"\nSanity 4 - Pitching+ vs {nombre_stuff} r = {g['pit'].corr(g['stuff']):.3f}; "
           f"vs Location+ r = {g['pit'].corr(g['loc']):.3f} "
           f"(debe correlacionar con los dos; {len(g)} pitchers)")
-    print(f"   referencia: Stuff+ vs Location+ r = {g['stuff'].corr(g['loc']):.3f}")
+    print(f"   referencia: {nombre_stuff} vs Location+ r = {g['stuff'].corr(g['loc']):.3f}")
 
     # ---- Sanity 5: estabilidad entre temporadas
     r, n = estabilidad_entre_temporadas(scores, "pitching_plus")
